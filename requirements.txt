@@ -1,0 +1,24 @@
+# segmentation_service requirements
+# Python >= 3.10 recommended
+
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+pillow>=10.3.0
+numpy>=1.26.0
+
+# PyTorch — install the correct build for your system:
+# CPU-only:
+torch>=2.2.0
+torchvision>=0.17.0
+# GPU (CUDA 12.1) — replace the above two lines with:
+# torch==2.2.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+# torchvision==0.17.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# SAM (Segment Anything Model)
+# Install from GitHub — not on PyPI:
+# pip install git+https://github.com/facebookresearch/segment-anything.git
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
+
+# CLIP (open-clip — supports ViT-B/32 with OpenAI weights)
+open-clip-torch>=2.24.0

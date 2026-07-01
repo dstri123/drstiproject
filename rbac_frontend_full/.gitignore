@@ -1,0 +1,7 @@
+media/
+*.ply
+node_modules/
+.cache/
+build/
+dist/
+.env
