@@ -11,6 +11,7 @@ import Header from "../viewer/layout/Header";
 import IconToolbar from "../viewer/layout/IconToolbar";
 import ContextPanel from "../viewer/layout/Sidebar";
 import API from "../../api/axios";
+import { getProjectIdFromSlug } from "@/lib/utils";
 import {
   ChevronLeft,
   ChevronRight,
@@ -1345,10 +1346,12 @@ function overlayLabel(side, color) {
 
 
 export default function AnalyticsPage() {
-  // The URL param may be a project SLUG or a numeric id — resolve either.
+  // Same route-param format as the Viewer (`${id}_${name}`) — reuse its helper
+  // so Analytics resolves to the same project id, and therefore the same
+  // upload dates shown on Project → 3D Data.
   const { slug: routeParam } = useParams();
+  const projectId = getProjectIdFromSlug(routeParam);
 
-  const [projectId, setProjectId] = useState(null); // numeric id once resolved
   const [projectName, setProjectName] = useState("");
   const [uploadsByDate, setUploadsByDate] = useState({});
   const [fetching, setFetching] = useState(false);
@@ -1356,19 +1359,19 @@ export default function AnalyticsPage() {
   const [activePanel, setActivePanel] = useState(null);
 
   useEffect(() => {
-    if (!routeParam) return;
+    if (!projectId) {
+      setProjectName("");
+      return;
+    }
     API.get("projects/")
       .then((res) => {
         const project = (res.data || []).find(
-          (p) => p.slug === routeParam || String(p.id) === String(routeParam),
+          (p) => String(p.id) === String(projectId),
         );
-        if (project) {
-          setProjectId(project.id);
-          setProjectName(project.project_name);
-        }
+        if (project) setProjectName(project.project_name);
       })
       .catch(() => {});
-  }, [routeParam]);
+  }, [projectId]);
 
   useEffect(() => {
     if (!projectId) {
