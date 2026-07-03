@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
 import { useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
-import { getProjectIdFromSlug } from "@/lib/utils";
+import { createProjectSlug, getProjectIdFromSlug } from "@/lib/utils";
 import API from "../../api/axios";
 import Layout from "./layout/Layout";
 import ThreeViewer from "./components/viewer/ThreeViewer";
@@ -10,7 +10,10 @@ import { useToast } from "../../components/ToastContainer";
 
 export default function ViewerPage() {
   const { projectSlug } = useParams();
-  const id = getProjectIdFromSlug(projectSlug);
+  const [resolvedProjectId, setResolvedProjectId] = useState(() =>
+    getProjectIdFromSlug(projectSlug),
+  );
+  const id = resolvedProjectId ?? getProjectIdFromSlug(projectSlug);
   const role = localStorage.getItem("role") || "viewer";
   const toast = useToast();
 
@@ -157,18 +160,34 @@ export default function ViewerPage() {
   };
 
   const loadProjectAssets = async () => {
-    if (!id) return;
+    if (!projectSlug) return;
 
     try {
-      const [bimRes, pointRes, imageRes, projectsRes] = await Promise.all([
-        API.get(`projects/${id}/bim/`),
-        API.get(`projects/${id}/pointcloud/`),
-        API.get(`projects/${id}/images/`),
-        API.get("projects/"),
+      const projectsRes = await API.get("projects/");
+      const project = (projectsRes.data || []).find(
+        (p) =>
+          String(p.id) === String(projectSlug) ||
+          p.slug === projectSlug ||
+          createProjectSlug(p) === projectSlug,
+      );
+
+      const resolvedId = project?.id ?? getProjectIdFromSlug(projectSlug);
+      if (!resolvedId) return;
+      setResolvedProjectId(resolvedId);
+
+      const [bimRes, pointRes, imageRes] = await Promise.all([
+        API.get(`projects/${resolvedId}/bim/`),
+        API.get(`projects/${resolvedId}/pointcloud/`),
+        API.get(`projects/${resolvedId}/images/`),
       ]);
 
       // Pull the project's creation-time latitude/longitude for the map panel.
-      const proj = (projectsRes.data || []).find((p) => String(p.id) === String(id));
+      const proj = (projectsRes.data || []).find(
+        (p) =>
+          String(p.id) === String(resolvedId) ||
+          p.slug === projectSlug ||
+          createProjectSlug(p) === projectSlug,
+      );
       if (proj) {
         setProjectGeo({
           latitude: proj.latitude ?? null,
@@ -317,7 +336,9 @@ export default function ViewerPage() {
   // alignment pair (with each file's date) so Progress Assessment can pick it.
   const handleSaveAlignmentPair = useCallback(async () => {
     if (!latestBimItem || !latestPointItem) {
-      toast.info("Load both a BIM and a Point Cloud to save an alignment pair.");
+      toast.info(
+        "Load both a BIM and a Point Cloud to save an alignment pair.",
+      );
       return;
     }
     try {
@@ -349,7 +370,14 @@ export default function ViewerPage() {
 
   // Persist the geolocation a contributor sets via the Map Location panel
   // ("Place Models") back to the project record.
-  const handleSaveGeo = async ({ latitude, longitude, altitude, scale, zoom, footprint_area }) => {
+  const handleSaveGeo = async ({
+    latitude,
+    longitude,
+    altitude,
+    scale,
+    zoom,
+    footprint_area,
+  }) => {
     try {
       await API.put(`projects/${id}/`, {
         latitude,
@@ -359,7 +387,14 @@ export default function ViewerPage() {
         zoom,
         footprint_area,
       });
-      setProjectGeo({ latitude, longitude, altitude, scale, zoom, footprint_area });
+      setProjectGeo({
+        latitude,
+        longitude,
+        altitude,
+        scale,
+        zoom,
+        footprint_area,
+      });
       toast.success("Project location saved.");
     } catch (err) {
       console.error("Failed to save project location", err);
@@ -529,9 +564,7 @@ export default function ViewerPage() {
           onSavePosition={
             role === "data_contributor" ? handleSavePosition : undefined
           }
-          onSaveGeo={
-            role === "data_contributor" ? handleSaveGeo : undefined
-          }
+          onSaveGeo={role === "data_contributor" ? handleSaveGeo : undefined}
           saveStatus={saveStatus}
           // ── segmentation ──
           onModelDataChange={handleModelDataChange}

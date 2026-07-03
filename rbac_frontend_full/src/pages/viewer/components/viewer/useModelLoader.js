@@ -887,7 +887,22 @@ export default function useModelLoader(sceneData, props) {
 
   // ─── Load Point Cloud ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!pointFile || !sceneRef.current) return;
+    if (!sceneRef.current) return;
+    // Switching to a different date/version leaves the previous cloud in the
+    // scene otherwise — unlike the BIM effect above, this one used to only
+    // clear pcModel when pointFile went away entirely, not when it changed to
+    // another file, so two point clouds could render stacked on top of each
+    // other.
+    if (pcModel) {
+      sceneRef.current.remove(pcModel);
+      pcModel.geometry?.dispose();
+      pcModel.material?.dispose();
+      setPcModel(null);
+      setIsSegmented(false);
+      colorRefs.original = null;
+      colorRefs.segment = null;
+    }
+    if (!pointFile) return;
     if (!isValidPointCloud(pointFile)) {
       onError?.(
         `Unsupported point cloud format "${getExt(pointFile)}". ` +
