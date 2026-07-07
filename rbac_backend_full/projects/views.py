@@ -477,6 +477,9 @@ class ProjectImageView(APIView):
 
     def get(self, request, project_id):
         data = ProjectImage.objects.filter(project_id=project_id)
+        batch_name = request.query_params.get("batch_name")
+        if batch_name:
+            data = data.filter(batch_name=batch_name)
         serializer = ProjectImageSerializer(data, many=True, context={"request": request})
         return Response(serializer.data)
 
@@ -484,6 +487,7 @@ class ProjectImageView(APIView):
         project = get_object_or_404(Project, id=project_id)
         zip_file = request.FILES.get("zip_file")
         upload_date = request.data.get("date")
+        requested_batch_name = request.data.get("batch_name")
 
         if not zip_file:
             return Response({"zip_file": "This field is required."}, status=400)
@@ -494,7 +498,10 @@ class ProjectImageView(APIView):
         zip_file.seek(0)
         created_images = []
         allowed_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".webp"]
-        batch_name = os.path.splitext(get_valid_filename(zip_file.name or ""))[0]
+        if requested_batch_name:
+            batch_name = get_valid_filename(requested_batch_name)
+        else:
+            batch_name = os.path.splitext(get_valid_filename(zip_file.name or ""))[0]
 
         with zipfile.ZipFile(zip_file) as zf:
             for info in zf.infolist():
