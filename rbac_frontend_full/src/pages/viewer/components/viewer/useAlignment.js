@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import * as THREE from "three";
 import { kabschAlgorithm } from "../../utils/kabsch";
 import API from "../../../../api/axios";
@@ -58,9 +58,16 @@ export default function useAlignment(sceneData, modelData, props) {
   const { pcModel, bimModel } = modelData;
   const toast = useToast();
 
-  const { bimPoints = [], pcPoints = [], onMatrixChange, onAlignmentLocked } = props;
+  const {
+    bimPoints = [],
+    pcPoints = [],
+    onMatrixChange,
+    onAlignmentLocked,
+    uploadedAlignmentMatrix,
+  } = props;
 
   const [matrix, setMatrix] = useState(null);
+  const appliedPcModelRef = useRef(null);
 
   // Once BIM + point cloud are registered to each other, they form one rigid
   // unit. Compute their shared common point (combined world centre) and notify
@@ -146,6 +153,23 @@ export default function useAlignment(sceneData, modelData, props) {
     },
     [pcModel],
   );
+
+  // Auto-apply an uploaded Matrix File (.json) to the point cloud as soon as
+  // both it and the point cloud are available — this is what ties the BIM
+  // model and point cloud together from batch upload data, without requiring
+  // the manual "Upload Matrix" flow in the sidebar. Keyed off the pcModel
+  // instance so re-loading a different point cloud (date/version switch)
+  // re-applies it, but a later manual gizmo nudge isn't fought.
+  useEffect(() => {
+    if (!pcModel || !uploadedAlignmentMatrix) return;
+    if (appliedPcModelRef.current === pcModel) return;
+    appliedPcModelRef.current = pcModel;
+    applyMatrixToModel(uploadedAlignmentMatrix);
+    lockAlignment();
+    setMatrix(uploadedAlignmentMatrix);
+    onMatrixChange?.(uploadedAlignmentMatrix);
+    toast.success("Point cloud aligned using the uploaded matrix file.");
+  }, [pcModel, uploadedAlignmentMatrix, applyMatrixToModel, lockAlignment, onMatrixChange, toast]);
 
   const alignGeometry = useCallback(() => {
     const result = computeAlignmentMatrix();
