@@ -51,6 +51,11 @@ export default function ViewerPage() {
   // -------- CAMERA --------
   const [cameraPositionsFile, setCameraPositionsFile] = useState(null);
   const [cameraImages, setCameraImages] = useState([]);
+
+  // Matrix File (.json) uploaded alongside a photo batch — a raw 4x4
+  // transform applied to both the imported camera positions and the point
+  // cloud, so the BIM model and point cloud line up.
+  const [uploadedAlignmentMatrix, setUploadedAlignmentMatrix] = useState(null);
   const [showCameras, setShowCameras] = useState(true);
   const [calOpen, setCalOpen] = useState(false);
   const calBtnRef = useRef(null);
@@ -65,6 +70,26 @@ export default function ViewerPage() {
       return `${apiBase}${fileUrl}`;
     }
     return fileUrl;
+  };
+
+  // The viewer fires ~50 concurrent map-tile requests to the same origin on
+  // load, which can starve other fetches past the browser's per-host
+  // connection cap and drop them with a raw "Failed to fetch". Retry small
+  // metadata fetches (camera/matrix) a couple of times before giving up.
+  const fetchWithRetry = async (url, attempts = 6) => {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fetch(url);
+      } catch (err) {
+        lastErr = err;
+        console.warn(`fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`, err);
+        if (i < attempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 800 * (i + 1)));
+        }
+      }
+    }
+    throw lastErr;
   };
 
   const createRemoteSource = (fileUrl, transform = null) => {
@@ -175,10 +200,12 @@ export default function ViewerPage() {
       if (!resolvedId) return;
       setResolvedProjectId(resolvedId);
 
-      const [bimRes, pointRes, imageRes] = await Promise.all([
+      const [bimRes, pointRes, imageRes, cameraRes, matrixRes] = await Promise.all([
         API.get(`projects/${resolvedId}/bim/`),
         API.get(`projects/${resolvedId}/pointcloud/`),
         API.get(`projects/${resolvedId}/images/`),
+        API.get(`projects/${resolvedId}/camera/`),
+        API.get(`projects/${resolvedId}/matrix/`),
       ]);
 
       // Pull the project's creation-time latitude/longitude for the map panel.
@@ -202,6 +229,60 @@ export default function ViewerPage() {
       const images = imageRes.data || [];
       const latestImages = getLatestBatchImages(images);
       setCameraImages(latestImages.length ? latestImages : images);
+
+      const batchName = latestImages[0]?.batch_name || images[0]?.batch_name;
+      const cameraItems = cameraRes.data || [];
+      const batchCameraItems = batchName
+        ? cameraItems.filter((c) => c.batch_name === batchName)
+        : cameraItems;
+      const cameraItem =
+        (batchCameraItems.length ? batchCameraItems : cameraItems).find(
+          (c) => c.is_latest,
+        ) || (batchCameraItems.length ? batchCameraItems : cameraItems)[0];
+
+      if (cameraItem?.file) {
+        try {
+          const camResp = await fetchWithRetry(resolveRemoteUrl(cameraItem.file));
+          const camBlob = await camResp.blob();
+          setCameraPositionsFile(camBlob);
+        } catch (camErr) {
+          console.error("Failed to load camera positions file", camErr);
+          setCameraPositionsFile(null);
+        }
+      } else {
+        setCameraPositionsFile(null);
+      }
+
+      // Matrix File (.json) for the same batch — a raw 4x4 transform applied
+      // to the camera positions and the point cloud so BIM + point cloud align.
+      const matrixItems = matrixRes.data || [];
+      const batchMatrixItems = batchName
+        ? matrixItems.filter((m) => m.batch_name === batchName)
+        : matrixItems;
+      const matrixItem =
+        (batchMatrixItems.length ? batchMatrixItems : matrixItems).find(
+          (m) => m.is_latest,
+        ) || (batchMatrixItems.length ? batchMatrixItems : matrixItems)[0];
+
+      if (matrixItem?.file) {
+        try {
+          const matResp = await fetchWithRetry(resolveRemoteUrl(matrixItem.file));
+          const matJson = await matResp.json();
+          const isValid4x4 =
+            Array.isArray(matJson) &&
+            matJson.length === 4 &&
+            matJson.every((row) => Array.isArray(row) && row.length === 4);
+          setUploadedAlignmentMatrix(isValid4x4 ? matJson : null);
+          if (!isValid4x4) {
+            console.error("Matrix file is not a 4x4 array", matJson);
+          }
+        } catch (matErr) {
+          console.error("Failed to load matrix file", matErr);
+          setUploadedAlignmentMatrix(null);
+        }
+      } else {
+        setUploadedAlignmentMatrix(null);
+      }
 
       const pickByExtension = (items, exts) =>
         (items || []).find((item) => {
@@ -256,7 +337,14 @@ export default function ViewerPage() {
 
   useEffect(() => {
     loadProjectAssets();
-  }, [id]);
+    // loadProjectAssets re-derives the project id from projectSlug itself and
+    // calls setResolvedProjectId(...) — depending on `id` here would make this
+    // effect re-trigger itself on that very state update, silently doubling
+    // every request it makes (including the multi-hundred-MB point cloud
+    // fetch), which is enough concurrent load to make the browser drop one of
+    // the duplicate large fetches ("Failed to fetch").
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSlug]);
 
   const handleDateSelect = useCallback(
     (dateKey) => {
@@ -544,6 +632,8 @@ export default function ViewerPage() {
           pcVisible={pcVisible}
           cameraPositionsFile={cameraPositionsFile}
           cameraImages={cameraImages}
+          uploadedCameraMatrix={uploadedAlignmentMatrix}
+          uploadedAlignmentMatrix={uploadedAlignmentMatrix}
           showCameras={showCameras}
           onElementSelect={setSelectedElement}
           highlightOverlap={highlightOverlap}
@@ -767,7 +857,10 @@ function MonthCalendar({
           }
           const dateKey = dateKeyForDay(day);
           const selected = dateKey === selectedDate;
-          const available = Boolean(uploadsByDate[dateKey]);
+          const dayUploads = uploadsByDate[dateKey];
+          const available = Boolean(dayUploads);
+          const hasBim = Boolean(dayUploads?.bim?.length);
+          const hasPc = Boolean(dayUploads?.pc?.length);
           const isToday = dateKey === todayStr;
           return (
             <button
@@ -802,14 +895,35 @@ function MonthCalendar({
               {available && (
                 <span
                   style={{
-                    display: "block",
-                    width: 6,
-                    height: 6,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 3,
                     marginTop: 4,
-                    borderRadius: "50%",
-                    background: accent,
                   }}
-                />
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: hasBim ? accent : "transparent",
+                      border: hasBim ? "none" : `1px solid ${accent}`,
+                    }}
+                  />
+                  {hasPc && (
+                    <span
+                      style={{
+                        display: "block",
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: accent,
+                      }}
+                    />
+                  )}
+                </span>
               )}
             </button>
           );

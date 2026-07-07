@@ -602,11 +602,32 @@ export default function useModelLoader(sceneData, props) {
   const isValidPointCloud = (f) => PC_EXTENSIONS.includes(getExt(f));
   const isNativePLY = (f) => getExt(f) === ".ply";
 
+  // BIM/point-cloud files can be tens to hundreds of MB, fetched at the same
+  // time as ~50 map tile requests to the same origin — under that connection
+  // contention the browser occasionally drops the request outright with a
+  // raw "Failed to fetch" (no HTTP status at all). Retry a couple of times
+  // before giving up, since the server itself isn't the problem.
+  const fetchWithRetry = async (url, attempts = 6) => {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fetch(url);
+      } catch (err) {
+        lastErr = err;
+        console.warn(`fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`, err);
+        if (i < attempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 800 * (i + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  };
+
   const resolveBlob = async (source) => {
     if (!source) return null;
     if (source instanceof Blob) return source;
     if (source?.url) {
-      const response = await fetch(source.url);
+      const response = await fetchWithRetry(source.url);
       if (!response.ok) {
         throw new Error(
           `Failed to fetch remote asset: ${response.status} ${response.statusText}`,

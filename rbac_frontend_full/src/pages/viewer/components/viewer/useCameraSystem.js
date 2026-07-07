@@ -774,7 +774,7 @@ let manualCameraCounter = 0;
 
 export default function useCameraSystem(sceneData, modelData, props) {
   const { sceneRef, cameraRef, rendererRef, controlsRef } = sceneData;
-  const { cameraPositionsFile, showCameras, cameraImages } = props;
+  const { cameraPositionsFile, showCameras, cameraImages, uploadedCameraMatrix } = props;
 
   const camerasRef = useRef([]);
   const cameraMarkersRef = useRef([]);
@@ -1143,7 +1143,14 @@ export default function useCameraSystem(sceneData, modelData, props) {
       originalPosRef.current = [];
       return;
     }
-    matrixAppliedRef.current = false;
+    // An uploaded Matrix File (.json) for this batch is baked straight into
+    // the camera positions, same as the manual "Upload Camera Matrix" flow.
+    if (uploadedCameraMatrix) {
+      matrixRef.current = uploadedCameraMatrix;
+      matrixAppliedRef.current = true;
+    } else {
+      matrixAppliedRef.current = false;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       const parsed = [];
@@ -1174,7 +1181,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
       buildCameras(parsed);
     };
     reader.readAsText(cameraPositionsFile);
-  }, [cameraPositionsFile, buildCameras, cleanupAll]);
+  }, [cameraPositionsFile, uploadedCameraMatrix, buildCameras, cleanupAll]);
 
   // useEffect(() => {
   //   if (!cameraPositionsFile) {
