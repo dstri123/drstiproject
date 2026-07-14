@@ -23,6 +23,7 @@ let manualCameraCounter = 0;
 
 export default function useCameraSystem(sceneData, modelData, props) {
   const { sceneRef, cameraRef, rendererRef, controlsRef } = sceneData;
+  const { pcModel } = modelData;
   const {
     cameraPositionsFile,
     showCameras,
@@ -301,16 +302,31 @@ export default function useCameraSystem(sceneData, modelData, props) {
         rotQuat = new THREE.Quaternion().setFromRotationMatrix(rotMatrix);
       }
 
+      const rawToWorld = pcModel?.userData?.rawToWorld || null;
+      const rawRotQuat = rawToWorld
+        ? new THREE.Quaternion().setFromRotationMatrix(
+            new THREE.Matrix4().extractRotation(rawToWorld),
+          )
+        : null;
+
       positions.forEach((posData, idx) => {
         const cam = new THREE.PerspectiveCamera(60, 4 / 3, 0.01, 10000);
 
-        cam.position.copy(posData.position);
-        cam.quaternion.copy(posData.quaternion);
+        const pos = posData.position.clone();
+        const quat = posData.quaternion.clone();
+
+        if (rawToWorld) {
+          pos.applyMatrix4(rawToWorld);
+          quat.premultiply(rawRotQuat);
+        }
 
         if (M) {
-          cam.position.applyMatrix4(M);
-          cam.quaternion.premultiply(rotQuat);
+          pos.applyMatrix4(M);
+          quat.premultiply(rotQuat);
         }
+
+        cam.position.copy(pos);
+        cam.quaternion.copy(quat);
 
         cam.updateMatrixWorld(true);
 
@@ -361,9 +377,15 @@ export default function useCameraSystem(sceneData, modelData, props) {
         cameraHelpersRef.current.push(helper);
       });
     },
-    [sceneRef, cleanupAll, showCameras],
+    [sceneRef, cleanupAll, showCameras, pcModel],
   );
 
+  useEffect(() => {
+    if (pcModel?.userData?.rawToWorld && originalPosRef.current.length) {
+      buildCameras(originalPosRef.current);
+    }
+    // eslint-disable-next-line
+  }, [pcModel]);
   // ── MARKER SIZE LOOP ──────────────────────────────────────────────────────
   useEffect(() => {
     let raf;
