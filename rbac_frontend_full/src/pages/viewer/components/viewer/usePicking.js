@@ -191,7 +191,6 @@ export default function usePicking(sceneData, modelData, props) {
             highlightedRef.current.userData.originalMaterial;
           highlightedRef.current = null;
         }
-
         if (hits.length > 0) {
           const mesh = hits[0].object;
 
@@ -207,8 +206,30 @@ export default function usePicking(sceneData, modelData, props) {
 
           highlightedRef.current = mesh;
 
+          // Read WORLD transform, not local — FBX/IFC meshes almost always
+          // have identity local transform (position/rotation baked into
+          // vertices, or held on a parent group), so mesh.position etc. would
+          // always read as [0,0,0]/[1,1,1]. World transform reflects where
+          // the element actually sits in the scene.
+          mesh.updateMatrixWorld(true);
+          const worldPos = new THREE.Vector3();
+          const worldQuat = new THREE.Quaternion();
+          const worldScale = new THREE.Vector3();
+          mesh.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+          const worldEuler = new THREE.Euler().setFromQuaternion(
+            worldQuat,
+            "XYZ",
+          );
+
           onElementSelect?.({
             name: mesh.name || "Unnamed",
+            type: mesh.type,
+            position: worldPos.toArray(),
+            rotation: [worldEuler.x, worldEuler.y, worldEuler.z],
+            scale: worldScale.toArray(),
+            visible: mesh.visible,
+            overlappingPoints:
+              window.__overlapCountsByUuid?.get(mesh.uuid) ?? 0,
           });
         }
 

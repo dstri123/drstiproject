@@ -83,7 +83,10 @@ export default function ViewerPage() {
         return await fetch(url);
       } catch (err) {
         lastErr = err;
-        console.warn(`fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`, err);
+        console.warn(
+          `fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`,
+          err,
+        );
         if (i < attempts - 1) {
           await new Promise((resolve) => setTimeout(resolve, 800 * (i + 1)));
         }
@@ -200,13 +203,14 @@ export default function ViewerPage() {
       if (!resolvedId) return;
       setResolvedProjectId(resolvedId);
 
-      const [bimRes, pointRes, imageRes, cameraRes, matrixRes] = await Promise.all([
-        API.get(`projects/${resolvedId}/bim/`),
-        API.get(`projects/${resolvedId}/pointcloud/`),
-        API.get(`projects/${resolvedId}/images/`),
-        API.get(`projects/${resolvedId}/camera/`),
-        API.get(`projects/${resolvedId}/matrix/`),
-      ]);
+      const [bimRes, pointRes, imageRes, cameraRes, matrixRes] =
+        await Promise.all([
+          API.get(`projects/${resolvedId}/bim/`),
+          API.get(`projects/${resolvedId}/pointcloud/`),
+          API.get(`projects/${resolvedId}/images/`),
+          API.get(`projects/${resolvedId}/camera/`),
+          API.get(`projects/${resolvedId}/matrix/`),
+        ]);
 
       // Pull the project's creation-time latitude/longitude for the map panel.
       const proj = (projectsRes.data || []).find(
@@ -242,7 +246,9 @@ export default function ViewerPage() {
 
       if (cameraItem?.file) {
         try {
-          const camResp = await fetchWithRetry(resolveRemoteUrl(cameraItem.file));
+          const camResp = await fetchWithRetry(
+            resolveRemoteUrl(cameraItem.file),
+          );
           const camBlob = await camResp.blob();
           setCameraPositionsFile(camBlob);
         } catch (camErr) {
@@ -266,7 +272,9 @@ export default function ViewerPage() {
 
       if (matrixItem?.file) {
         try {
-          const matResp = await fetchWithRetry(resolveRemoteUrl(matrixItem.file));
+          const matResp = await fetchWithRetry(
+            resolveRemoteUrl(matrixItem.file),
+          );
           const matJson = await matResp.json();
           const isValid4x4 =
             Array.isArray(matJson) &&
@@ -343,7 +351,6 @@ export default function ViewerPage() {
     // every request it makes (including the multi-hundred-MB point cloud
     // fetch), which is enough concurrent load to make the browser drop one of
     // the duplicate large fetches ("Failed to fetch").
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectSlug]);
 
   const handleDateSelect = useCallback(
@@ -526,10 +533,12 @@ export default function ViewerPage() {
   }, []);
 
   // -------- METADATA --------
+  // -------- METADATA --------
   const [selectedElement, setSelectedElement] = useState(null);
   const [highlightOverlap, setHighlightOverlap] = useState(false);
   const [bimElementCount, setBimElementCount] = useState(0);
   const [overlapElementCount, setOverlapElementCount] = useState(0);
+  const [overlapElementNames, setOverlapElementNames] = useState([]); // NEW
 
   return (
     <Layout
@@ -551,6 +560,7 @@ export default function ViewerPage() {
         setHighlightOverlap,
         bimElementCount,
         overlapElementCount,
+        overlapElementNames, // NEW
         bimPoints,
         pcPoints,
         manualCameras,
@@ -639,6 +649,7 @@ export default function ViewerPage() {
           highlightOverlap={highlightOverlap}
           setBimElementCount={setBimElementCount}
           setOverlapElementCount={setOverlapElementCount}
+          setOverlapElementNames={setOverlapElementNames} // NEW
           onManualCamerasChange={handleManualCamerasChange}
           onModelsChanged={({ bimModel, pcModel }) => {
             setBimModel(bimModel);

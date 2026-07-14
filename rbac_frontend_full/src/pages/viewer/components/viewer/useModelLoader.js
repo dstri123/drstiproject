@@ -1,224 +1,3 @@
-// import { useEffect, useState } from "react";
-// import * as THREE from "three";
-// import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
-// import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader";
-
-// export default function useModelLoader(sceneData, props) {
-//   const { sceneRef, cameraRef, controlsRef } = sceneData;
-
-//   const { bimFile, pointFile, bimVisible, pcVisible, setBimElementCount } =
-//     props;
-
-//   const [bimModel, setBimModel] = useState(null);
-//   const [pcModel, setPcModel] = useState(null);
-//   const [error, setError] = useState(null);
-//   const isValidFBX = (file) => file?.name?.toLowerCase().endsWith(".fbx");
-
-//   const isValidPLY = (file) => file?.name?.toLowerCase().endsWith(".ply");
-
-//   // ================= LIGHTS =================
-//   useEffect(() => {
-//     const scene = sceneRef.current;
-//     if (!scene) return;
-
-//     const ambient = new THREE.AmbientLight(0xffffff, 0.8);
-//     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-
-//     dirLight.position.set(10, 10, 10);
-
-//     scene.add(ambient);
-//     scene.add(dirLight);
-
-//     return () => {
-//       scene.remove(ambient);
-//       scene.remove(dirLight);
-//     };
-//   }, [sceneRef]);
-
-//   // ================= LOAD FBX =================
-//   useEffect(() => {
-//     if (!sceneRef.current) return;
-
-//     if (bimModel) {
-//       sceneRef.current.remove(bimModel);
-//       setBimModel(null);
-//       setBimElementCount?.(0);
-//     }
-
-//     if (!bimFile) return;
-
-//     if (!isValidFBX(bimFile)) {
-//       onError?.("FBX format only supported");
-//       return;
-//     }
-//     setError(null);
-
-//     const loader = new FBXLoader();
-//     const url = URL.createObjectURL(bimFile);
-
-//     loader.load(
-//       url,
-//       (fbx) => {
-//         let meshCount = 0;
-
-//         fbx.traverse((child) => {
-//           if (child.isMesh) {
-//             meshCount++;
-
-//             child.material = new THREE.MeshStandardMaterial({
-//               color: 0x4a90e2,
-//               roughness: 0.5,
-//               metalness: 0.1,
-//             });
-//           }
-//         });
-
-//         setBimElementCount?.(meshCount);
-
-//         // ===== CENTER MODEL =====
-//         const box = new THREE.Box3().setFromObject(fbx);
-//         const size = box.getSize(new THREE.Vector3());
-//         const center = box.getCenter(new THREE.Vector3());
-
-//         fbx.position.sub(center);
-
-//         sceneRef.current.add(fbx);
-//         setBimModel(fbx);
-
-//         // ===== CAMERA FIT =====
-//         if (cameraRef?.current) {
-//           const maxDim = Math.max(size.x, size.y, size.z);
-
-//           const fov = cameraRef.current.fov * (Math.PI / 180);
-//           let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-//           cameraZ *= 1.8;
-
-//           cameraRef.current.position.set(cameraZ, cameraZ, cameraZ);
-//           cameraRef.current.lookAt(0, 0, 0);
-//           cameraRef.current.updateProjectionMatrix();
-
-//           if (controlsRef?.current) {
-//             controlsRef.current.target.set(0, 0, 0);
-//             controlsRef.current.enableZoom = true;
-//             controlsRef.current.minDistance = 0.1;
-//             controlsRef.current.maxDistance = 5000;
-//             controlsRef.current.update();
-//           }
-//         }
-//       },
-//       undefined,
-//       (err) => console.error("FBX Load Error:", err),
-//     );
-
-//     return () => {
-//       URL.revokeObjectURL(url);
-//     };
-
-//     // eslint-disable-next-line
-//   }, [bimFile]);
-
-//   // ================= LOAD POINT CLOUD =================
-//   useEffect(() => {
-//     if (!pointFile || !sceneRef.current) return;
-
-//     if (!pointFile) return;
-
-//     if (!isValidPLY(pointFile)) {
-//       onError?.("PLY format only supported");
-//       return;
-//     }
-
-//     setError(null);
-//     const loader = new PLYLoader();
-//     const url = URL.createObjectURL(pointFile);
-
-//     loader.load(
-//       url,
-//       (geometry) => {
-//         geometry.computeVertexNormals();
-
-//         if (!geometry.attributes.color) {
-//           const count = geometry.attributes.position.count;
-
-//           const colors = new Float32Array(count * 3);
-
-//           for (let i = 0; i < count; i++) {
-//             colors[i * 3] = 1;
-//             colors[i * 3 + 1] = 1;
-//             colors[i * 3 + 2] = 1;
-//           }
-
-//           geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-//         }
-
-//         const material = new THREE.PointsMaterial({
-//           size: 0.02,
-//           vertexColors: true,
-//         });
-
-//         const points = new THREE.Points(geometry, material);
-
-//         const box = new THREE.Box3().setFromObject(points);
-//         const center = box.getCenter(new THREE.Vector3());
-
-//         // points.position.sub(center);
-
-//         sceneRef.current.add(points);
-//         setPcModel(points);
-
-//         URL.revokeObjectURL(url);
-//       },
-//       undefined,
-//       (err) => {
-//         console.error("PLY load error:", err);
-//         URL.revokeObjectURL(url);
-//       },
-//     );
-
-//     return () => {
-//       if (pcModel && sceneRef) {
-//         sceneRef.remove(pcModel);
-//         pcModel.geometry?.dispose();
-//         pcModel.material?.dispose();
-//         setPcModel(null);
-//       }
-//     };
-
-//     // eslint-disable-next-line
-//   }, [pointFile]);
-
-//   // ================= VISIBILITY =================
-//   useEffect(() => {
-//     if (bimModel) bimModel.visible = bimVisible;
-//   }, [bimVisible, bimModel]);
-
-//   useEffect(() => {
-//     if (pcModel) pcModel.visible = pcVisible;
-//   }, [pcVisible, pcModel]);
-
-//   // ================= DELETE HANDLING =================
-//   useEffect(() => {
-//     if (!bimFile && bimModel && sceneRef.current) {
-//       sceneRef.current.remove(bimModel);
-//       setBimModel(null);
-//       setBimElementCount?.(0);
-//     }
-
-//     // eslint-disable-next-line
-//   }, [bimFile]);
-
-//   useEffect(() => {
-//     if (!pointFile && pcModel && sceneRef.current) {
-//       sceneRef.current.remove(pcModel);
-//       setPcModel(null);
-//     }
-
-//     // eslint-disable-next-line
-//   }, [pointFile]);
-
-//   return { bimModel, pcModel, error };
-// }
-
 import { useEffect, useState, useCallback, useRef } from "react";
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
@@ -278,7 +57,9 @@ function hashString(str) {
 // Pick a material colour for a BIM mesh: keep the colour authored in the FBX
 // when it is meaningful, otherwise fall back to the palette by element name.
 function bimColorFor(child) {
-  const orig = Array.isArray(child.material) ? child.material[0] : child.material;
+  const orig = Array.isArray(child.material)
+    ? child.material[0]
+    : child.material;
   if (orig?.color) {
     const { r, g, b } = orig.color;
     const isDefaultWhite = r > 0.95 && g > 0.95 && b > 0.95;
@@ -572,8 +353,14 @@ function optimizePointGeometry(geo, { quantizePositions }) {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export default function useModelLoader(sceneData, props) {
   const { sceneRef, cameraRef, controlsRef } = sceneData;
-  const { bimFile, pointFile, bimVisible, pcVisible, setBimElementCount, onError } =
-    props;
+  const {
+    bimFile,
+    pointFile,
+    bimVisible,
+    pcVisible,
+    setBimElementCount,
+    onError,
+  } = props;
 
   const [bimModel, setBimModel] = useState(null);
   const [pcModel, setPcModel] = useState(null);
@@ -597,7 +384,15 @@ export default function useModelLoader(sceneData, props) {
 
   // Formats accepted by the point-cloud loader path.
   // PLY is rendered natively; all others are converted to PLY via the backend.
-  const PC_EXTENSIONS = [".ply", ".las", ".laz", ".plz", ".e57", ".pts", ".xyz"];
+  const PC_EXTENSIONS = [
+    ".ply",
+    ".las",
+    ".laz",
+    ".plz",
+    ".e57",
+    ".pts",
+    ".xyz",
+  ];
   const getExt = (f) => f?.name?.toLowerCase().match(/\.[^.]+$/)?.[0] ?? "";
   const isValidPointCloud = (f) => PC_EXTENSIONS.includes(getExt(f));
   const isNativePLY = (f) => getExt(f) === ".ply";
@@ -614,7 +409,10 @@ export default function useModelLoader(sceneData, props) {
         return await fetch(url);
       } catch (err) {
         lastErr = err;
-        console.warn(`fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`, err);
+        console.warn(
+          `fetchWithRetry: attempt ${i + 1}/${attempts} failed for ${url}`,
+          err,
+        );
         if (i < attempts - 1) {
           await new Promise((resolve) => setTimeout(resolve, 800 * (i + 1)));
         }
@@ -696,7 +494,9 @@ export default function useModelLoader(sceneData, props) {
   const fitCameraToObjects = useCallback(
     (objects) => {
       if (!cameraRef?.current) return;
-      const list = (Array.isArray(objects) ? objects : [objects]).filter(Boolean);
+      const list = (Array.isArray(objects) ? objects : [objects]).filter(
+        Boolean,
+      );
       if (!list.length) return;
 
       const box = new THREE.Box3();
@@ -875,7 +675,8 @@ export default function useModelLoader(sceneData, props) {
           }
           new FBXLoader().load(objectUrl, setupBimObject, undefined, (err) => {
             console.error("FBX Load Error:", err);
-            const message = "Failed to load BIM file. It may be corrupted or in an unsupported format.";
+            const message =
+              "Failed to load BIM file. It may be corrupted or in an unsupported format.";
             setError(message);
             onError?.(message);
             setIsLoadingBim(false);
@@ -887,7 +688,8 @@ export default function useModelLoader(sceneData, props) {
           err.response?.data instanceof Blob
             ? "IFC conversion failed on the server"
             : err.response?.data?.error;
-        const message = serverError || err.message || "Failed to load BIM file.";
+        const message =
+          serverError || err.message || "Failed to load BIM file.";
         setError(message);
         onError?.(message);
         setIsLoadingBim(false);
@@ -927,7 +729,7 @@ export default function useModelLoader(sceneData, props) {
     if (!isValidPointCloud(pointFile)) {
       onError?.(
         `Unsupported point cloud format "${getExt(pointFile)}". ` +
-        "Supported: PLY, LAS, LAZ, PLZ, E57, PTS, XYZ."
+          "Supported: PLY, LAS, LAZ, PLZ, E57, PTS, XYZ.",
       );
       return;
     }
@@ -958,7 +760,10 @@ export default function useModelLoader(sceneData, props) {
             res = await API.post(
               "processing/tools/pointcloud-to-ply/",
               formData,
-              { headers: { "Content-Type": "multipart/form-data" }, responseType: "blob" }
+              {
+                headers: { "Content-Type": "multipart/form-data" },
+                responseType: "blob",
+              },
             );
           } catch (axiosErr) {
             // Parse a JSON error body that was returned as a blob.
@@ -974,7 +779,9 @@ export default function useModelLoader(sceneData, props) {
         }
 
         if (!objectUrl) {
-          throw new Error("Unable to resolve point cloud source to a blob URL.");
+          throw new Error(
+            "Unable to resolve point cloud source to a blob URL.",
+          );
         }
 
         if (isCancelled) {
@@ -1201,14 +1008,14 @@ export default function useModelLoader(sceneData, props) {
     if (!initial) return;
     const f = Math.max(0.05, Number(factor) || 1);
 
-    const before = new THREE.Box3().setFromObject(model).getCenter(
-      new THREE.Vector3(),
-    );
+    const before = new THREE.Box3()
+      .setFromObject(model)
+      .getCenter(new THREE.Vector3());
     model.scale.copy(initial.scale).multiplyScalar(f);
     model.updateMatrixWorld(true);
-    const after = new THREE.Box3().setFromObject(model).getCenter(
-      new THREE.Vector3(),
-    );
+    const after = new THREE.Box3()
+      .setFromObject(model)
+      .getCenter(new THREE.Vector3());
     // keep the model centred where it was before rescaling
     model.position.add(before.sub(after));
     model.updateMatrixWorld(true);

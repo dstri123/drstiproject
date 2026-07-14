@@ -187,9 +187,7 @@ export default function PhotoUpload() {
       setSelectedZipFile(null);
       return true;
     } catch (err) {
-      error(
-        err.response?.data?.zip_file?.[0] || "Failed to upload ZIP file.",
-      );
+      error(err.response?.data?.zip_file?.[0] || "Failed to upload ZIP file.");
       return false;
     }
   };
