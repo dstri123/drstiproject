@@ -22,14 +22,24 @@ const matrixSig = (obj) => (obj ? obj.matrixWorld.elements.join(",") : "");
  */
 export default function useOverlap(sceneData, modelData, props) {
   const { pcModel, bimModel } = modelData;
-  const { highlightOverlap, setOverlapElementCount } = props;
+  const {
+    highlightOverlap,
+    setOverlapElementCount,
+    setOverlapElementNames, // NEW — optional callback, resolved element names
+  } = props;
 
-  const bimCacheRef = useRef({ sig: null, occupied: null, voxelToElems: null });
+  const bimCacheRef = useRef({
+    sig: null,
+    occupied: null,
+    voxelToElems: null,
+    elemNames: null, // NEW
+  });
   const lastSigRef = useRef("");
 
   // Build (or reuse) the BIM surface voxel hash.
   const getBimVoxels = useCallback(() => {
-    if (!bimModel) return { occupied: new Set(), voxelToElems: new Map() };
+    if (!bimModel)
+      return { occupied: new Set(), voxelToElems: new Map(), elemNames: [] }; // CHANGED
     bimModel.updateMatrixWorld(true);
     const sig = matrixSig(bimModel);
     if (bimCacheRef.current.sig === sig && bimCacheRef.current.occupied) {
@@ -37,12 +47,25 @@ export default function useOverlap(sceneData, modelData, props) {
     }
     const occupied = new Set();
     const voxelToElems = new Map();
+    const elemNames = []; // index -> display name
+    const elemUuids = []; // NEW — index -> mesh.uuid
     const v = new THREE.Vector3();
     let elemIndex = 0;
     bimModel.traverse((c) => {
       if (!c.isMesh || !c.geometry?.attributes?.position) return;
       const idx = elemIndex++;
+      const cName = typeof c.name === "string" ? c.name.trim() : "";
+      const parentName =
+        typeof c.parent?.name === "string" ? c.parent.name.trim() : "";
+      const userDataName =
+        typeof c.userData?.elementName === "string"
+          ? c.userData.elementName.trim()
+          : "";
+      elemNames[idx] =
+        cName || parentName || userDataName || `Element ${idx + 1}`;
+      elemUuids[idx] = c.uuid; // NEW
       const pos = c.geometry.attributes.position;
+      // ...rest unchanged...
       c.updateMatrixWorld(true);
       const m = c.matrixWorld;
       // Stride huge meshes so building stays bounded.
@@ -59,7 +82,7 @@ export default function useOverlap(sceneData, modelData, props) {
         if (arr[arr.length - 1] !== idx) arr.push(idx);
       }
     });
-    bimCacheRef.current = { sig, occupied, voxelToElems };
+    bimCacheRef.current = { sig, occupied, voxelToElems, elemNames, elemUuids }; // CHANGED
     return bimCacheRef.current;
   }, [bimModel]);
 
@@ -76,11 +99,12 @@ export default function useOverlap(sceneData, modelData, props) {
     // Start from the original colours so re-runs don't accumulate green.
     colAttr.array.set(geom.userData.originalColors);
 
-    const { occupied, voxelToElems } = getBimVoxels();
+    const { occupied, voxelToElems, elemNames, elemUuids } = getBimVoxels(); // CHANGED
     pcModel.updateMatrixWorld(true);
     const m = pcModel.matrixWorld;
     const v = new THREE.Vector3();
     const hitElems = new Set();
+    const hitCounts = new Map(); // NEW — elemIndex -> point count
     const count = posAttr.count;
 
     for (let i = 0; i < count; i++) {
@@ -89,13 +113,41 @@ export default function useOverlap(sceneData, modelData, props) {
       if (occupied.has(key)) {
         colAttr.setXYZ(i, 0, 1, 0); // green
         const elems = voxelToElems.get(key);
-        if (elems) for (let e = 0; e < elems.length; e++) hitElems.add(elems[e]);
+        if (elems) {
+          for (let e = 0; e < elems.length; e++) {
+            hitElems.add(elems[e]);
+            hitCounts.set(elems[e], (hitCounts.get(elems[e]) || 0) + 1); // NEW
+          }
+        }
       }
     }
     colAttr.needsUpdate = true;
     setOverlapElementCount(hitElems.size);
+
+    setOverlapElementNames?.(
+      Array.from(hitElems)
+        .map((idx) => elemNames?.[idx] ?? `Element ${idx + 1}`)
+        .sort((a, b) => a.localeCompare(b)),
+    );
+
+    // NEW — publish per-mesh counts keyed by uuid, so usePicking's click
+    // handler can look up "how many overlap points does THIS mesh have"
+    // without needing a direct dependency between the two hooks.
+    const countsByUuid = new Map();
+    hitCounts.forEach((cnt, idx) => {
+      const uuid = elemUuids?.[idx];
+      if (uuid) countsByUuid.set(uuid, cnt);
+    });
+    window.__overlapCountsByUuid = countsByUuid;
+
     lastSigRef.current = matrixSig(bimModel) + "|" + matrixSig(pcModel);
-  }, [pcModel, bimModel, getBimVoxels, setOverlapElementCount]);
+  }, [
+    pcModel,
+    bimModel,
+    getBimVoxels,
+    setOverlapElementCount,
+    setOverlapElementNames, // NEW
+  ]);
 
   // Toggle on/off.
   useEffect(() => {
@@ -108,8 +160,15 @@ export default function useOverlap(sceneData, modelData, props) {
         geom.attributes.color.array.set(geom.userData.originalColors);
         geom.attributes.color.needsUpdate = true;
       }
+      setOverlapElementNames?.([]);
+      window.__overlapCountsByUuid = new Map(); // NEW
     }
-  }, [highlightOverlap, highlightOverlappingPoints, pcModel]);
+  }, [
+    highlightOverlap,
+    highlightOverlappingPoints,
+    pcModel,
+    setOverlapElementNames,
+  ]); // CHANGED (added dep)
 
   // Recompute when a model is moved (drag-end) during manual alignment — only
   // if the highlight is on AND the world transforms actually changed.
@@ -133,5 +192,11 @@ export default function useOverlap(sceneData, modelData, props) {
       canvas.removeEventListener("pointerup", onUp);
       clearTimeout(timer);
     };
-  }, [sceneData, highlightOverlap, pcModel, bimModel, highlightOverlappingPoints]);
+  }, [
+    sceneData,
+    highlightOverlap,
+    pcModel,
+    bimModel,
+    highlightOverlappingPoints,
+  ]);
 }
