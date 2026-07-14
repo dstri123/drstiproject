@@ -819,10 +819,12 @@ export default function useModelLoader(sceneData, props) {
             // Compress in memory: colours → Uint8 always; positions → Float16
             // (recentered) only when there's no saved transform to honour, so
             // half-float precision stays good. ~24 B/pt → ~9 B/pt.
-            optimizePointGeometry(finalGeo, {
+            // optimizePointGeometry(finalGeo, {
+            //   quantizePositions: !pointFile?.transform,
+            // });
+            const geomCentroid = optimizePointGeometry(finalGeo, {
               quantizePositions: !pointFile?.transform,
             });
-
             // Save original colours (now Uint8, a quarter of the old Float32
             // copy) so the segmentation toggle can restore them.
             colorRefs.original = new Uint8Array(
@@ -873,6 +875,14 @@ export default function useModelLoader(sceneData, props) {
               const pCenter = pBox.getCenter(new THREE.Vector3());
               points.position.sub(pCenter);
               points.updateMatrixWorld(true);
+              const centroidShift = new THREE.Matrix4().makeTranslation(
+                -geomCentroid.x,
+                -geomCentroid.y,
+                -geomCentroid.z,
+              );
+              points.userData.rawToWorld = points.matrixWorld
+                .clone()
+                .multiply(centroidShift);
             }
             sceneRef.current.add(points);
             setPcModel(points);
