@@ -537,6 +537,7 @@ export default function ViewerPage() {
   const [selectedElement, setSelectedElement] = useState(null);
   const [highlightOverlap, setHighlightOverlap] = useState(false);
   const [bimElementCount, setBimElementCount] = useState(0);
+  const [bimCategories, setBimCategories] = useState({}); // NEW
   const [overlapElementCount, setOverlapElementCount] = useState(0);
   const [overlapElementNames, setOverlapElementNames] = useState([]); // NEW
 
@@ -559,6 +560,7 @@ export default function ViewerPage() {
         highlightOverlap,
         setHighlightOverlap,
         bimElementCount,
+        bimCategories, // NEW
         overlapElementCount,
         overlapElementNames, // NEW
         bimPoints,
@@ -648,6 +650,7 @@ export default function ViewerPage() {
           onElementSelect={setSelectedElement}
           highlightOverlap={highlightOverlap}
           setBimElementCount={setBimElementCount}
+          setBimCategories={setBimCategories} // NEW
           setOverlapElementCount={setOverlapElementCount}
           setOverlapElementNames={setOverlapElementNames} // NEW
           onManualCamerasChange={handleManualCamerasChange}
