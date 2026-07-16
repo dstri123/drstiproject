@@ -9,6 +9,7 @@ import {
   Scissors,
   SlidersHorizontal,
   Loader2,
+  Route,
 } from "lucide-react";
 import * as THREE from "three";
 import { useToast } from "../../../../components/ToastContainer";
@@ -33,11 +34,18 @@ import API from "../../../../api/axios";
 // cross-origin isolated (COEP) for SharedArrayBuffer; the proxy adds the CORP
 // header so tiles load in every browser. {z}/{x}/{y} are filled by Leaflet.
 const OSM_TILE_PROXY =
-  API.defaults.baseURL.replace(/\/$/, "") + "/processing/osm-tile/{z}/{x}/{y}.png";
+  API.defaults.baseURL.replace(/\/$/, "") +
+  "/processing/osm-tile/{z}/{x}/{y}.png";
 
 // A single round icon button in the right-hand viewer toolbar. Centralises the
 // styling so every button looks/acts the same; `active` highlights toggles.
-function ToolbarButton({ icon, label, onClick, active = false, disabled = false }) {
+function ToolbarButton({
+  icon,
+  label,
+  onClick,
+  active = false,
+  disabled = false,
+}) {
   return (
     <button
       type="button"
@@ -105,7 +113,6 @@ function ThreeViewer({
     zoom: "18",
   });
 
-
   // Seed the map with the project's creation-time coordinates once they load.
   // Only override the placeholder default — don't stomp on user edits.
   const geoSeededRef = useRef(false);
@@ -132,7 +139,10 @@ function ThreeViewer({
           ? String(props.initialZoom)
           : prev.zoom,
     }));
-    if (props.initialFootprintArea != null && props.initialFootprintArea !== "") {
+    if (
+      props.initialFootprintArea != null &&
+      props.initialFootprintArea !== ""
+    ) {
       setFootprintArea(Number(props.initialFootprintArea));
     }
   }, [
@@ -163,7 +173,7 @@ function ThreeViewer({
     // embedded in an <iframe> ("refused to connect"). The /export/embed.html
     // endpoint is the supported embeddable map and CAN be framed. It needs a
     // bbox, which we derive from the centre + zoom (smaller span = higher zoom).
-    const span = 360 / Math.pow(2, z) * 1.5;
+    const span = (360 / Math.pow(2, z)) * 1.5;
     const latSpan = span * 0.6;
     const minLon = clng - span / 2;
     const maxLon = clng + span / 2;
@@ -220,8 +230,7 @@ function ThreeViewer({
     // Clamp to 19 so the plane size matches the clamped texture zoom.
     const z = Math.min(parseInt(zoom, 10) || 16, 19);
     const latRad = ((Number(lat) || 0) * Math.PI) / 180;
-    const metersPerPixel =
-      (156543.03392 * Math.cos(latRad)) / Math.pow(2, z);
+    const metersPerPixel = (156543.03392 * Math.cos(latRad)) / Math.pow(2, z);
     return texPx * metersPerPixel;
   };
   const [geoMapIframeUrl, setGeoMapIframeUrl] = useState(() => {
@@ -362,7 +371,12 @@ function ThreeViewer({
 
       setGeoMapIframeUrl(getOpenStreetMapIframeUrl(lat || 0, lng || 0, zoom));
       try {
-        const dataUrl = await generateStitchedMapDataUrl(lat, lng, zoom, TEX_PX);
+        const dataUrl = await generateStitchedMapDataUrl(
+          lat,
+          lng,
+          zoom,
+          TEX_PX,
+        );
         if (!cancelled && dataUrl) {
           setGeoMapImageUrl(dataUrl);
         }
@@ -473,107 +487,107 @@ function ThreeViewer({
   }, [sectionBoxActive, props]);
 
   const applyGeoLocation = () => {
-   try {
-    const latitude = parseFloat(geoLocation.latitude);
-    const longitude = parseFloat(geoLocation.longitude);
-    const altitude = parseFloat(geoLocation.altitude) || 0;
-    const scale = parseFloat(geoLocation.scale) || 1;
+    try {
+      const latitude = parseFloat(geoLocation.latitude);
+      const longitude = parseFloat(geoLocation.longitude);
+      const altitude = parseFloat(geoLocation.altitude) || 0;
+      const scale = parseFloat(geoLocation.scale) || 1;
 
-    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-      error("Enter valid latitude and longitude values.");
-      return;
+      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+        error("Enter valid latitude and longitude values.");
+        return;
+      }
+
+      // Pull the models live from the scene each click so repeated placements
+      // never act on a stale/missing reference (a cause of the button seeming
+      // to "stop working" after the first use).
+      const bimModel = modelData?.bimModel || null;
+      const pcModel = modelData?.pcModel || null;
+      if (!bimModel && !pcModel) {
+        info("Load a BIM or PointCloud model before placing geolocation.");
+        return;
+      }
+
+      // The map texture is centred on the pin, so the building goes to the scene
+      // centre (X/Z = 0) — i.e. exactly under the pin. Altitude sets the height.
+      const targetPosition = new THREE.Vector3(0, altitude, 0);
+
+      // Treat BIM + point cloud as ONE group: compute their COMBINED bounding
+      // box and move both by the SAME translation. This preserves their relative
+      // geo-alignment (they stay locked together) instead of centring each model
+      // separately on the pin, which would pull them apart.
+      const groupBox = new THREE.Box3();
+      let haveBox = false;
+      for (const m of [bimModel, pcModel]) {
+        if (!m) continue;
+        groupBox.union(new THREE.Box3().setFromObject(m));
+        haveBox = true;
+      }
+      if (!haveBox) return;
+
+      const groupCenter = groupBox.getCenter(new THREE.Vector3());
+      // Centre the group on the pin (X/Z) and rest its BASE on the map ground at
+      // the given altitude (rather than burying half below the plane).
+      const translation = new THREE.Vector3(
+        targetPosition.x - groupCenter.x,
+        altitude - groupBox.min.y,
+        targetPosition.z - groupCenter.z,
+      );
+      const moveMatrix = new THREE.Matrix4().makeTranslation(
+        translation.x,
+        translation.y,
+        translation.z,
+      );
+      if (bimModel) bimModel.applyMatrix4(moveMatrix);
+      if (pcModel) pcModel.applyMatrix4(moveMatrix);
+
+      // Footprint area = combined X–Z extent in m² (geometry assumed in metres).
+      // Only auto-fill if the user hasn't typed their own value.
+      if (!footprintEditedRef.current) {
+        const size = groupBox.getSize(new THREE.Vector3());
+        setFootprintArea(Math.round(Math.abs(size.x * size.z) * 100) / 100);
+      }
+
+      // Frame the camera on the building so it reads at a sensible scale against
+      // the map (like a site-context view) instead of staying zoomed out on the
+      // whole 2-3 km map plane where the building looks like a speck. This also
+      // makes "Place Models" visibly do something after the pin is moved.
+      const cam = sceneData.cameraRef?.current;
+      const ctrls = sceneData.controlsRef?.current;
+      if (cam && ctrls) {
+        const placedBox = new THREE.Box3();
+        if (bimModel) placedBox.union(new THREE.Box3().setFromObject(bimModel));
+        if (pcModel) placedBox.union(new THREE.Box3().setFromObject(pcModel));
+        const c = placedBox.getCenter(new THREE.Vector3());
+        const sphere = placedBox.getBoundingSphere(new THREE.Sphere());
+        const dist = Math.max(sphere.radius * 2.6, 20);
+        ctrls.target.copy(c);
+        cam.position.set(c.x + dist * 0.7, c.y + dist * 0.9, c.z + dist * 0.7);
+        cam.near = Math.max(0.1, dist / 500);
+        cam.far = Math.max(5000, dist * 50);
+        cam.updateProjectionMatrix();
+        cam.lookAt(c);
+        ctrls.update();
+      }
+
+      // Persist the edited coordinates back to the project record so they
+      // survive a reload and seed the panel next time it's opened.
+      onSaveGeo?.({
+        latitude,
+        longitude,
+        altitude,
+        scale,
+        zoom: parseInt(geoLocation.zoom, 10) || 16,
+        footprint_area: footprintArea,
+      });
+
+      success(
+        `Models placed at ${latitude.toFixed(6)}, ${longitude.toFixed(6)} (alt ${altitude.toFixed(2)}).`,
+      );
+    } catch (err) {
+      console.error("applyGeoLocation failed", err);
+      error("Could not place models. See console for details.");
     }
-
-    // Pull the models live from the scene each click so repeated placements
-    // never act on a stale/missing reference (a cause of the button seeming
-    // to "stop working" after the first use).
-    const bimModel = modelData?.bimModel || null;
-    const pcModel = modelData?.pcModel || null;
-    if (!bimModel && !pcModel) {
-      info("Load a BIM or PointCloud model before placing geolocation.");
-      return;
-    }
-
-    // The map texture is centred on the pin, so the building goes to the scene
-    // centre (X/Z = 0) — i.e. exactly under the pin. Altitude sets the height.
-    const targetPosition = new THREE.Vector3(0, altitude, 0);
-
-    // Treat BIM + point cloud as ONE group: compute their COMBINED bounding
-    // box and move both by the SAME translation. This preserves their relative
-    // geo-alignment (they stay locked together) instead of centring each model
-    // separately on the pin, which would pull them apart.
-    const groupBox = new THREE.Box3();
-    let haveBox = false;
-    for (const m of [bimModel, pcModel]) {
-      if (!m) continue;
-      groupBox.union(new THREE.Box3().setFromObject(m));
-      haveBox = true;
-    }
-    if (!haveBox) return;
-
-    const groupCenter = groupBox.getCenter(new THREE.Vector3());
-    // Centre the group on the pin (X/Z) and rest its BASE on the map ground at
-    // the given altitude (rather than burying half below the plane).
-    const translation = new THREE.Vector3(
-      targetPosition.x - groupCenter.x,
-      altitude - groupBox.min.y,
-      targetPosition.z - groupCenter.z,
-    );
-    const moveMatrix = new THREE.Matrix4().makeTranslation(
-      translation.x,
-      translation.y,
-      translation.z,
-    );
-    if (bimModel) bimModel.applyMatrix4(moveMatrix);
-    if (pcModel) pcModel.applyMatrix4(moveMatrix);
-
-    // Footprint area = combined X–Z extent in m² (geometry assumed in metres).
-    // Only auto-fill if the user hasn't typed their own value.
-    if (!footprintEditedRef.current) {
-      const size = groupBox.getSize(new THREE.Vector3());
-      setFootprintArea(Math.round(Math.abs(size.x * size.z) * 100) / 100);
-    }
-
-    // Frame the camera on the building so it reads at a sensible scale against
-    // the map (like a site-context view) instead of staying zoomed out on the
-    // whole 2-3 km map plane where the building looks like a speck. This also
-    // makes "Place Models" visibly do something after the pin is moved.
-    const cam = sceneData.cameraRef?.current;
-    const ctrls = sceneData.controlsRef?.current;
-    if (cam && ctrls) {
-      const placedBox = new THREE.Box3();
-      if (bimModel) placedBox.union(new THREE.Box3().setFromObject(bimModel));
-      if (pcModel) placedBox.union(new THREE.Box3().setFromObject(pcModel));
-      const c = placedBox.getCenter(new THREE.Vector3());
-      const sphere = placedBox.getBoundingSphere(new THREE.Sphere());
-      const dist = Math.max(sphere.radius * 2.6, 20);
-      ctrls.target.copy(c);
-      cam.position.set(c.x + dist * 0.7, c.y + dist * 0.9, c.z + dist * 0.7);
-      cam.near = Math.max(0.1, dist / 500);
-      cam.far = Math.max(5000, dist * 50);
-      cam.updateProjectionMatrix();
-      cam.lookAt(c);
-      ctrls.update();
-    }
-
-    // Persist the edited coordinates back to the project record so they
-    // survive a reload and seed the panel next time it's opened.
-    onSaveGeo?.({
-      latitude,
-      longitude,
-      altitude,
-      scale,
-      zoom: parseInt(geoLocation.zoom, 10) || 16,
-      footprint_area: footprintArea,
-    });
-
-    success(
-      `Models placed at ${latitude.toFixed(6)}, ${longitude.toFixed(6)} (alt ${altitude.toFixed(2)}).`,
-    );
-   } catch (err) {
-     console.error("applyGeoLocation failed", err);
-     error("Could not place models. See console for details.");
-   }
   };
 
   // Reset the Map Location panel + restore the models to their pre-geo state
@@ -824,7 +838,8 @@ function ThreeViewer({
         scalePivotRef.current = commonPivotRef.current.clone();
       } else {
         const baseBox = new THREE.Box3();
-        for (const m of models) baseBox.union(new THREE.Box3().setFromObject(m));
+        for (const m of models)
+          baseBox.union(new THREE.Box3().setFromObject(m));
         scalePivotRef.current = baseBox.getCenter(new THREE.Vector3());
       }
     }
@@ -968,6 +983,8 @@ function ThreeViewer({
     manualCameras,
     deleteCamera,
     toggleCameraVisibility,
+    toggleCameraPath,
+    cameraPathVisible,
   } = cameraData;
 
   useEffect(() => {
@@ -1008,45 +1025,46 @@ function ThreeViewer({
         style={{ position: "absolute", inset: 0, zIndex: 1, cursor: "grab" }}
       />
 
-      {(modelData.isLoadingBim || modelData.isLoadingPc) && !modelData.isConvertingIfc && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 20,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            background: "rgba(255,255,255,0.55)",
-            pointerEvents: "none",
-          }}
-        >
+      {(modelData.isLoadingBim || modelData.isLoadingPc) &&
+        !modelData.isConvertingIfc && (
           <div
             style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 20,
               display: "flex",
+              flexDirection: "column",
               alignItems: "center",
+              justifyContent: "center",
               gap: 10,
-              padding: "10px 18px",
-              borderRadius: 12,
-              background: "rgba(255,255,255,0.96)",
-              border: "1px solid rgba(148,163,184,0.4)",
-              boxShadow: "0 12px 30px rgba(15, 23, 42, 0.12)",
-              fontSize: 13,
-              fontWeight: 600,
-              color: "#0f172a",
+              background: "rgba(255,255,255,0.55)",
+              pointerEvents: "none",
             }}
           >
-            <Loader2 size={18} className="animate-spin" />
-            {modelData.isLoadingBim && modelData.isLoadingPc
-              ? "Loading BIM model and point cloud…"
-              : modelData.isLoadingBim
-                ? "Loading BIM model…"
-                : "Loading point cloud…"}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 18px",
+                borderRadius: 12,
+                background: "rgba(255,255,255,0.96)",
+                border: "1px solid rgba(148,163,184,0.4)",
+                boxShadow: "0 12px 30px rgba(15, 23, 42, 0.12)",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#0f172a",
+              }}
+            >
+              <Loader2 size={18} className="animate-spin" />
+              {modelData.isLoadingBim && modelData.isLoadingPc
+                ? "Loading BIM model and point cloud…"
+                : modelData.isLoadingBim
+                  ? "Loading BIM model…"
+                  : "Loading point cloud…"}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {modelData.isConvertingIfc && (
         <div
@@ -1085,8 +1103,8 @@ function ThreeViewer({
             </div>
             <div style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5 }}>
               The IFC file is being converted on the server so it can be
-              displayed. This can take a while the first time for large
-              models — please wait.
+              displayed. This can take a while the first time for large models —
+              please wait.
             </div>
           </div>
         </div>
@@ -1116,8 +1134,8 @@ function ThreeViewer({
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-            Selected: {selectedLabel} — drag the colored arrows/rings to move
-            or rotate it
+            Selected: {selectedLabel} — drag the colored arrows/rings to move or
+            rotate it
           </span>
           <button
             type="button"
@@ -1217,6 +1235,15 @@ function ThreeViewer({
           onClick={(e) => {
             e.stopPropagation();
             toggleGrid();
+          }}
+        />
+        <ToolbarButton
+          icon={<Route size={18} />}
+          label={cameraPathVisible ? "Hide camera path" : "Show camera path"}
+          active={cameraPathVisible}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleCameraPath();
           }}
         />
 
@@ -1501,9 +1528,9 @@ function ThreeViewer({
               </div>
             ))}
             <div style={{ fontSize: 11, color: "#64748b" }}>
-              Rotations are baked into each model — use Save to persist.
-              Click "Select" (or click the model directly in the 3D view) to
-              get free-drag arrows/rings for fine rotation and positioning.
+              Rotations are baked into each model — use Save to persist. Click
+              "Select" (or click the model directly in the 3D view) to get
+              free-drag arrows/rings for fine rotation and positioning.
             </div>
           </div>
         )}
@@ -1562,173 +1589,195 @@ function ThreeViewer({
                 paddingRight: 2,
               }}
             >
-            <div style={{ marginBottom: 10 }}>
-              <LeafletMap
-                lat={parseFloat(geoLocation.latitude)}
-                lng={parseFloat(geoLocation.longitude)}
-                zoom={parseInt(geoLocation.zoom, 10) || 16}
-                height={130}
-                tileUrl={OSM_TILE_PROXY}
-                onMove={(lat, lng) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    latitude: lat.toFixed(6),
-                    longitude: lng.toFixed(6),
-                  }))
-                }
-              />
-              <div
+              <div style={{ marginBottom: 10 }}>
+                <LeafletMap
+                  lat={parseFloat(geoLocation.latitude)}
+                  lng={parseFloat(geoLocation.longitude)}
+                  zoom={parseInt(geoLocation.zoom, 10) || 16}
+                  height={130}
+                  tileUrl={OSM_TILE_PROXY}
+                  onMove={(lat, lng) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      latitude: lat.toFixed(6),
+                      longitude: lng.toFixed(6),
+                    }))
+                  }
+                />
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "#64748b",
+                    marginTop: 5,
+                  }}
+                >
+                  Drag the pin or click the map to set the location.
+                </div>
+              </div>
+              <label
                 style={{
-                  fontSize: 11,
-                  color: "#64748b",
-                  marginTop: 5,
+                  display: "block",
+                  marginBottom: 6,
+                  fontSize: 12,
+                  color: "#475569",
                 }}
               >
-                Drag the pin or click the map to set the location.
-              </div>
-            </div>
-            <label
-              style={{
-                display: "block",
-                marginBottom: 6,
-                fontSize: 12,
-                color: "#475569",
-              }}
-            >
-              Latitude
-              <input
-                value={geoLocation.latitude}
-                onChange={(event) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    latitude: event.target.value,
-                  }))
-                }
-                placeholder="e.g. 12.9716"
+                Latitude
+                <input
+                  value={geoLocation.latitude}
+                  onChange={(event) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      latitude: event.target.value,
+                    }))
+                  }
+                  placeholder="e.g. 12.9716"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: 8,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    outline: "none",
+                  }}
+                />
+              </label>
+              <label
                 style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: 8,
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  outline: "none",
+                  display: "block",
+                  marginBottom: 8,
+                  fontSize: 12,
+                  color: "#475569",
                 }}
-              />
-            </label>
-            <label
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontSize: 12,
-                color: "#475569",
-              }}
-            >
-              Longitude
-              <input
-                value={geoLocation.longitude}
-                onChange={(event) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    longitude: event.target.value,
-                  }))
-                }
-                placeholder="e.g. 77.5946"
-                style={{
-                  width: "100%",
-                  marginTop: 6,
-                  padding: 8,
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  outline: "none",
-                }}
-              />
-            </label>
-            {/* Altitude as a −100…+100 m slider — lift the model up or sink it
+              >
+                Longitude
+                <input
+                  value={geoLocation.longitude}
+                  onChange={(event) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      longitude: event.target.value,
+                    }))
+                  }
+                  placeholder="e.g. 77.5946"
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: 8,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    outline: "none",
+                  }}
+                />
+              </label>
+              {/* Altitude as a −100…+100 m slider — lift the model up or sink it
                 down to close any vertical gap with the ground. */}
-            <label
-              style={{
-                display: "block",
-                marginBottom: 10,
-                fontSize: 12,
-                color: "#475569",
-              }}
-            >
-              <span style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Altitude</span>
-                <strong>{(parseFloat(geoLocation.altitude) || 0).toFixed(0)} m</strong>
-              </span>
-              <input
-                type="range"
-                min={-100}
-                max={100}
-                step={1}
-                value={parseFloat(geoLocation.altitude) || 0}
-                onChange={(event) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    altitude: event.target.value,
-                  }))
-                }
-                style={{ width: "100%", marginTop: 6, accentColor: "#2563eb" }}
-              />
-            </label>
-            {/* Scale as a 0–50 slider (model size multiplier). */}
-            <label
-              style={{
-                display: "block",
-                marginBottom: 10,
-                fontSize: 12,
-                color: "#475569",
-              }}
-            >
-              <span style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Scale</span>
-                <strong>{(parseFloat(geoLocation.scale) || 0).toFixed(1)}×</strong>
-              </span>
-              <input
-                type="range"
-                min={0.1}
-                max={50}
-                step={0.1}
-                value={parseFloat(geoLocation.scale) || 1}
-                onChange={(event) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    scale: event.target.value,
-                  }))
-                }
-                style={{ width: "100%", marginTop: 6, accentColor: "#2563eb" }}
-              />
-            </label>
-            {/* Zoom as a slider. Max 19 because OSM tiles only exist up to
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: 10,
+                  fontSize: 12,
+                  color: "#475569",
+                }}
+              >
+                <span
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span>Altitude</span>
+                  <strong>
+                    {(parseFloat(geoLocation.altitude) || 0).toFixed(0)} m
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  min={-100}
+                  max={100}
+                  step={1}
+                  value={parseFloat(geoLocation.altitude) || 0}
+                  onChange={(event) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      altitude: event.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    accentColor: "#2563eb",
+                  }}
+                />
+              </label>
+              {/* Scale as a 0–50 slider (model size multiplier). */}
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: 10,
+                  fontSize: 12,
+                  color: "#475569",
+                }}
+              >
+                <span
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span>Scale</span>
+                  <strong>
+                    {(parseFloat(geoLocation.scale) || 0).toFixed(1)}×
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={50}
+                  step={0.1}
+                  value={parseFloat(geoLocation.scale) || 1}
+                  onChange={(event) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      scale: event.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    accentColor: "#2563eb",
+                  }}
+                />
+              </label>
+              {/* Zoom as a slider. Max 19 because OSM tiles only exist up to
                 zoom 19 — higher leaves the map blank ("no map"). */}
-            <label
-              style={{
-                display: "block",
-                marginBottom: 10,
-                fontSize: 12,
-                color: "#475569",
-              }}
-            >
-              <span style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Zoom</span>
-                <strong>{parseInt(geoLocation.zoom, 10) || 16}</strong>
-              </span>
-              <input
-                type="range"
-                min={14}
-                max={19}
-                step={1}
-                value={parseInt(geoLocation.zoom, 10) || 16}
-                onChange={(event) =>
-                  setGeoLocation((prev) => ({
-                    ...prev,
-                    zoom: event.target.value,
-                  }))
-                }
-                style={{ width: "100%", marginTop: 6, accentColor: "#2563eb" }}
-              />
-            </label>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: 10,
+                  fontSize: 12,
+                  color: "#475569",
+                }}
+              >
+                <span
+                  style={{ display: "flex", justifyContent: "space-between" }}
+                >
+                  <span>Zoom</span>
+                  <strong>{parseInt(geoLocation.zoom, 10) || 16}</strong>
+                </span>
+                <input
+                  type="range"
+                  min={14}
+                  max={19}
+                  step={1}
+                  value={parseInt(geoLocation.zoom, 10) || 16}
+                  onChange={(event) =>
+                    setGeoLocation((prev) => ({
+                      ...prev,
+                      zoom: event.target.value,
+                    }))
+                  }
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    accentColor: "#2563eb",
+                  }}
+                />
+              </label>
             </div>
             <div
               style={{
@@ -1759,7 +1808,9 @@ function ThreeViewer({
                 />
               </label>
             </div>
-            <div style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}>
+            <div
+              style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}
+            >
               <button
                 onClick={resetGeoLocation}
                 title="Undo placement/scale and reset the panel"

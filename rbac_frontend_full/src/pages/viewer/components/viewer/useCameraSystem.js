@@ -21,6 +21,53 @@ function lookupImage(name) {
 
 let manualCameraCounter = 0;
 
+// Natural/numeric filename comparator — kept here in case you still use it
+// elsewhere, but the path itself now uses spatial ordering below.
+function naturalCompare(a, b) {
+  const re = /(\d+)|(\D+)/g;
+  const ax = a.match(re) || [];
+  const bx = b.match(re) || [];
+  const len = Math.max(ax.length, bx.length);
+  for (let i = 0; i < len; i++) {
+    const av = ax[i] ?? "";
+    const bv = bx[i] ?? "";
+    const an = Number(av);
+    const bn = Number(bv);
+    const aIsNum = av !== "" && !Number.isNaN(an);
+    const bIsNum = bv !== "" && !Number.isNaN(bn);
+    if (aIsNum && bIsNum) {
+      if (an !== bn) return an - bn;
+    } else if (av !== bv) {
+      return av < bv ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+// Greedy nearest-neighbor ordering: starting from the first camera, repeatedly
+// jump to whichever remaining camera is spatially closest. Traces physical
+// layout of the rig/scan regardless of filename convention.
+function nearestNeighborOrder(camObjs) {
+  if (camObjs.length < 2) return camObjs.slice();
+  const remaining = camObjs.slice();
+  const ordered = [remaining.shift()];
+  let current = ordered[0];
+  while (remaining.length) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const d = current.position.distanceToSquared(remaining[i].position);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    current = remaining.splice(bestIdx, 1)[0];
+    ordered.push(current);
+  }
+  return ordered;
+}
+
 export default function useCameraSystem(sceneData, modelData, props) {
   const { sceneRef, cameraRef, rendererRef, controlsRef } = sceneData;
   const { pcModel } = modelData;
@@ -38,6 +85,12 @@ export default function useCameraSystem(sceneData, modelData, props) {
   const selectedMarkerRef = useRef(null);
   const matrixAppliedRef = useRef(false);
   const matrixRef = useRef(null);
+
+  // ── Camera path (poly-line through camera positions) ─────────────────────
+  const pathLineRef = useRef(null);
+  const pathDotsRef = useRef(null); // THREE.Group of small red sphere dots
+  const cameraPathVisibleRef = useRef(false);
+  const [cameraPathVisible, setCameraPathVisible] = useState(false);
 
   const previewCanvasRef = useRef(null);
   const previewRendererRef = useRef(null);
@@ -285,8 +338,83 @@ export default function useCameraSystem(sceneData, modelData, props) {
     camerasRef.current = [];
     cameraMarkersRef.current = [];
     cameraHelpersRef.current = [];
+    if (pathLineRef.current) {
+      sceneRef.current.remove(pathLineRef.current);
+      pathLineRef.current.geometry?.dispose();
+      pathLineRef.current.material?.dispose();
+      pathLineRef.current = null;
+    }
+    if (pathDotsRef.current) {
+      sceneRef.current.remove(pathDotsRef.current);
+      pathDotsRef.current.traverse((o) => {
+        o.geometry?.dispose();
+        o.material?.dispose();
+      });
+      pathDotsRef.current = null;
+    }
   }, [sceneRef]);
 
+  // Rebuilds the yellow poly-line through every camera's current position, in
+  // camerasRef.current order (i.e. load order for parsed cameras, append order
+  // for manual ones). Called whenever the camera list changes shape (build /
+  // add / delete). Visibility is controlled separately so toggling it doesn't
+  // force a full rebuild.
+  const updateCameraPath = useCallback(() => {
+    if (!sceneRef.current) return;
+
+    if (pathLineRef.current) {
+      sceneRef.current.remove(pathLineRef.current);
+      pathLineRef.current.geometry?.dispose();
+      pathLineRef.current.material?.dispose();
+      pathLineRef.current = null;
+    }
+    if (pathDotsRef.current) {
+      sceneRef.current.remove(pathDotsRef.current);
+      pathDotsRef.current.traverse((o) => {
+        o.geometry?.dispose();
+        o.material?.dispose();
+      });
+      pathDotsRef.current = null;
+    }
+
+    const cams = camerasRef.current.filter((c) => !c.userData.isManual);
+    if (cams.length < 2) return;
+
+    const ordered = nearestNeighborOrder(cams);
+    const anchors = ordered.map((c) => c.position.clone());
+
+    // ── connecting line (thin, light — the "corridor" the dots sit on) ───────
+    const curve = new THREE.CatmullRomCurve3(anchors, false, "catmullrom", 0.5);
+    const samples = Math.max(anchors.length * 8, 50);
+    const curvePoints = curve.getPoints(samples);
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
+    const lineMat = new THREE.LineBasicMaterial({
+      color: 0xcbd5e1,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const line = new THREE.Line(lineGeo, lineMat);
+    line.visible = cameraPathVisibleRef.current;
+    line.raycast = () => {};
+    line.renderOrder = 998;
+    sceneRef.current.add(line);
+    pathLineRef.current = line;
+
+    // ── red dot at each camera position, in path order ────────────────────────
+    const dotGroup = new THREE.Group();
+    const dotGeo = new THREE.SphereGeometry(1, 10, 10); // unit sphere, scaled per-frame like markers
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
+    anchors.forEach((pos) => {
+      const dot = new THREE.Mesh(dotGeo, dotMat);
+      dot.position.copy(pos);
+      dot.raycast = () => {};
+      dotGroup.add(dot);
+    });
+    dotGroup.visible = cameraPathVisibleRef.current;
+    sceneRef.current.add(dotGroup);
+    pathDotsRef.current = dotGroup;
+  }, [sceneRef]);
   // ── BUILD cameras ─────────────────────────────────────────────────────────
   const buildCameras = useCallback(
     (positions) => {
@@ -376,8 +504,9 @@ export default function useCameraSystem(sceneData, modelData, props) {
         sceneRef.current.add(helper);
         cameraHelpersRef.current.push(helper);
       });
+      updateCameraPath();
     },
-    [sceneRef, cleanupAll, showCameras, pcModel],
+    [sceneRef, cleanupAll, showCameras, pcModel, updateCameraPath],
   );
 
   useEffect(() => {
@@ -405,6 +534,14 @@ export default function useCameraSystem(sceneData, modelData, props) {
         scale = Math.max(0.1, Math.min(scale, 5));
         marker.scale.setScalar(scale);
       });
+      if (pathDotsRef.current) {
+        pathDotsRef.current.children.forEach((dot) => {
+          const distance = mainCam.position.distanceTo(dot.position);
+          let scale = distance * 0.015;
+          scale = Math.max(0.03, Math.min(scale, 1.2));
+          dot.scale.setScalar(scale);
+        });
+      }
     };
 
     updateMarkerSize();
@@ -453,6 +590,13 @@ export default function useCameraSystem(sceneData, modelData, props) {
         );
         parsed.push({ imageName, position: C.clone(), quaternion: qr.clone() });
       });
+      // Order by filename, not by however the lines appeared in images.txt —
+      // this is what makes the path trace the actual scan sequence instead
+      // of zig-zagging through the center (COLMAP's IMAGE_ID order != capture
+      // order).
+      parsed.sort((a, b) =>
+        naturalCompare(a.imageName || "", b.imageName || ""),
+      );
       originalPosRef.current = parsed;
       buildCameras(parsed);
     };
@@ -771,7 +915,8 @@ export default function useCameraSystem(sceneData, modelData, props) {
       ...prev,
       { name: label, visible: true, hasImage: false },
     ]);
-  }, [showCameras, setActiveCamera, sceneRef, cameraRef]);
+    updateCameraPath();
+  }, [showCameras, setActiveCamera, sceneRef, cameraRef, updateCameraPath]);
 
   // ── DELETE CAMERA ─────────────────────────────────────────────────────────
   const deleteCamera = useCallback(
@@ -807,10 +952,22 @@ export default function useCameraSystem(sceneData, modelData, props) {
       clearActiveCamera(name);
       setSelectedCamera((prev) => (prev?.name === name ? null : prev));
       setManualCameras((prev) => prev.filter((c) => c.name !== name));
+      updateCameraPath();
     },
-    [sceneRef, clearActiveCamera],
+    [sceneRef, clearActiveCamera, updateCameraPath],
   );
 
+  // Keep the ref in sync (read inside updateCameraPath without adding it as a
+  // dependency) and flip the actual line's visibility on toggle.
+  useEffect(() => {
+    cameraPathVisibleRef.current = cameraPathVisible;
+    if (pathLineRef.current) pathLineRef.current.visible = cameraPathVisible;
+    if (pathDotsRef.current) pathDotsRef.current.visible = cameraPathVisible;
+  }, [cameraPathVisible]);
+
+  const toggleCameraPath = useCallback(() => {
+    setCameraPathVisible((v) => !v);
+  }, []);
   // ── TOGGLE VISIBILITY ─────────────────────────────────────────────────────
   const toggleCameraVisibility = useCallback((name) => {
     const idx = camerasRef.current.findIndex(
@@ -963,11 +1120,13 @@ export default function useCameraSystem(sceneData, modelData, props) {
     window.handleCameraMatrixUpload = handleCameraMatrixUpload;
     window.applyCameraMatrix = applyCameraMatrix;
     window.addCameraManually = addCameraManually;
+    window.toggleCameraPath = toggleCameraPath;
   }, [
     handleCameraFolderUpload,
     handleCameraMatrixUpload,
     applyCameraMatrix,
     addCameraManually,
+    toggleCameraPath,
   ]);
 
   return {
@@ -985,5 +1144,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     transformRef,
     setActiveCamera,
     clearActiveCamera,
+    toggleCameraPath,
+    cameraPathVisible,
   };
 }

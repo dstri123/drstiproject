@@ -1127,6 +1127,7 @@ export default function ContextPanel(props) {
     bimElementCount,
     overlapElementCount,
     overlapElementNames = [], // NEW
+    bimCategories = {}, // NEW
     bimPoints,
     pcPoints,
     sectionBoxActive,
@@ -1194,6 +1195,30 @@ export default function ContextPanel(props) {
                 marginBottom: 10,
               }}
             >
+              {/* NEW — BIM element category breakdown (Walls, Floors, etc.) */}
+              {bimFile && Object.keys(bimCategories).length > 0 && (
+                <>
+                  <SectionLabel text="BIM Element Categories" />
+                  <div
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 6,
+                      overflow: "hidden",
+                      marginBottom: 10,
+                    }}
+                  >
+                    {Object.entries(bimCategories)
+                      .sort((a, b) => b[1].length - a[1].length)
+                      .map(([category, names]) => (
+                        <CategoryDropdown
+                          key={category}
+                          category={category}
+                          names={names}
+                        />
+                      ))}
+                  </div>
+                </>
+              )}
               {bimFile && (
                 <ModelCard
                   label="BIM Model"
@@ -1882,6 +1907,68 @@ function ModelCard({ label, name, visible, accent, onToggle, onDelete }) {
       <IconBtn title="Remove" danger onClick={onDelete}>
         <Trash2 size={12} />
       </IconBtn>
+    </div>
+  );
+}
+
+function CategoryDropdown({ category, names }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderBottom: "1px solid #f1f5f9" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "7px 9px",
+          background: "#fff",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#374151",
+        }}
+      >
+        <span>{category}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700 }}>
+            {names.length}
+          </span>
+          <span style={{ fontSize: 9, color: "#9ca3af" }}>
+            {open ? "▾" : "▸"}
+          </span>
+        </span>
+      </button>
+      {open && (
+        <ul
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: "0 0 6px 0",
+            background: "#fafafa",
+          }}
+        >
+          {names.map((name, i) => (
+            <li
+              key={`${name}-${i}`}
+              title={name}
+              style={{
+                padding: "4px 14px",
+                fontSize: 10.5,
+                color: "#4b5563",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {name}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

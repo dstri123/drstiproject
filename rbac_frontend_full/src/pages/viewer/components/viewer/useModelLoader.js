@@ -53,7 +53,35 @@ function hashString(str) {
   }
   return Math.abs(h);
 }
+// ─── Element category detection ───────────────────────────────────────────
+// Groups BIM elements (Walls, Floors, Columns, etc.) by matching keywords
+// against each mesh's name — FBX/IFC exporters consistently prefix element
+// names this way (e.g. "Basic_Wall_...", "Columns_Rectangular_...").
+const CATEGORY_KEYWORDS = [
+  { category: "Walls", keywords: ["wall"] },
+  { category: "Floors / Slabs", keywords: ["floor", "slab"] },
+  { category: "Columns", keywords: ["column", "col_"] },
+  { category: "Beams / Framing", keywords: ["beam", "framing"] },
+  { category: "Windows", keywords: ["window", "glazing"] },
+  { category: "Doors", keywords: ["door"] },
+  { category: "Roofs", keywords: ["roof"] },
+  { category: "Ceilings", keywords: ["ceiling"] },
+  { category: "Stairs / Railings", keywords: ["stair", "railing", "handrail"] },
+  { category: "Foundations", keywords: ["foundation", "footing", "pile"] },
+  {
+    category: "MEP (Pipes/Ducts)",
+    keywords: ["pipe", "duct", "conduit", "cable"],
+  },
+  { category: "Furniture", keywords: ["furniture", "furnishing"] },
+];
 
+function categorizeElementName(name) {
+  const n = (name || "").toLowerCase();
+  for (const { category, keywords } of CATEGORY_KEYWORDS) {
+    if (keywords.some((k) => n.includes(k))) return category;
+  }
+  return "Other";
+}
 // Pick a material colour for a BIM mesh: keep the colour authored in the FBX
 // when it is meaningful, otherwise fall back to the palette by element name.
 function bimColorFor(child) {
@@ -359,8 +387,10 @@ export default function useModelLoader(sceneData, props) {
     bimVisible,
     pcVisible,
     setBimElementCount,
+    setBimCategories, // NEW
     onError,
   } = props;
+  const { sceneReady } = sceneData;
 
   const [bimModel, setBimModel] = useState(null);
   const [pcModel, setPcModel] = useState(null);
@@ -418,7 +448,24 @@ export default function useModelLoader(sceneData, props) {
         }
       }
     }
+    if (
+      lastErr?.message?.toLowerCase().includes("failed to fetch") ||
+      lastErr?.name === "TypeError"
+    ) {
+      throw new Error(
+        "Network error while loading remote asset. Please try again.",
+      );
+    }
     throw lastErr;
+  };
+
+  const isNetworkFetchError = (err) => {
+    const text = String(err?.message || "").toLowerCase();
+    return (
+      text.includes("failed to fetch") ||
+      text.includes("network error") ||
+      text.includes("fetch error")
+    );
   };
 
   const resolveBlob = async (source) => {
@@ -551,11 +598,13 @@ export default function useModelLoader(sceneData, props) {
 
   // ─── Load FBX ──────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return;
     if (!sceneRef.current) return;
     if (bimModel) {
       sceneRef.current.remove(bimModel);
       setBimModel(null);
       setBimElementCount?.(0);
+      setBimCategories?.({}); // NEW
     }
     if (!bimFile) return;
     if (!isValidBIM(bimFile)) {
@@ -574,9 +623,22 @@ export default function useModelLoader(sceneData, props) {
     const setupBimObject = (object, skipUpright = false) => {
       if (isCancelled || !sceneRef.current) return;
       let meshCount = 0;
+      const categoryMap = new Map(); // NEW — category -> [names]
       object.traverse((child) => {
         if (child.isMesh) {
           meshCount++;
+
+          // NEW — resolve a display name the same way useOverlap does, then
+          // bucket it into a category by keyword match.
+          const elementName =
+            (typeof child.name === "string" && child.name.trim()) ||
+            (typeof child.parent?.name === "string" &&
+              child.parent.name.trim()) ||
+            `Element ${meshCount}`;
+          const category = categorizeElementName(elementName);
+          if (!categoryMap.has(category)) categoryMap.set(category, []);
+          categoryMap.get(category).push(elementName);
+
           const hasVertexColors = Boolean(child.geometry?.attributes?.color);
           child.material = new THREE.MeshStandardMaterial({
             color: hasVertexColors ? 0xffffff : bimColorFor(child),
@@ -610,6 +672,13 @@ export default function useModelLoader(sceneData, props) {
         }
       });
       setBimElementCount?.(meshCount);
+      // NEW — publish the category breakdown as a plain object, sorted names
+      // within each category, so the sidebar can render collapsible groups.
+      const categories = {};
+      categoryMap.forEach((names, cat) => {
+        categories[cat] = names.sort((a, b) => a.localeCompare(b));
+      });
+      setBimCategories?.(categories);
       // If a saved transform exists, apply it exactly as-saved.
       // Otherwise auto-orient and center the model in the scene.
       if (bimFile?.transform) {
@@ -691,7 +760,9 @@ export default function useModelLoader(sceneData, props) {
         const message =
           serverError || err.message || "Failed to load BIM file.";
         setError(message);
-        onError?.(message);
+        if (!isNetworkFetchError(err)) {
+          onError?.(message);
+        }
         setIsLoadingBim(false);
       }
     };
@@ -706,11 +777,11 @@ export default function useModelLoader(sceneData, props) {
       }
     };
     // eslint-disable-next-line
-  }, [bimFile]);
+  }, [bimFile, sceneReady]);
 
   // ─── Load Point Cloud ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!sceneRef.current) return;
+    if (!sceneReady || !sceneRef.current) return;
     // Switching to a different date/version leaves the previous cloud in the
     // scene otherwise — unlike the BIM effect above, this one used to only
     // clear pcModel when pointFile went away entirely, not when it changed to
@@ -927,7 +998,9 @@ export default function useModelLoader(sceneData, props) {
         console.error("Point cloud load error:", err);
         const message = err.message || "Failed to load point cloud.";
         setError(message);
-        onError?.(message);
+        if (!isNetworkFetchError(err)) {
+          onError?.(message);
+        }
         if (objectUrl) URL.revokeObjectURL(objectUrl);
         setIsLoadingPc(false);
       }
@@ -1107,15 +1180,18 @@ export default function useModelLoader(sceneData, props) {
 
   // ─── Cleanup on file removal ───────────────────────────────────────────────
   useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return;
     if (!bimFile && bimModel && sceneRef.current) {
       sceneRef.current.remove(bimModel);
       setBimModel(null);
       setBimElementCount?.(0);
+      setBimCategories?.({}); // NEW
     }
     // eslint-disable-next-line
-  }, [bimFile]);
+  }, [bimFile, bimModel, sceneReady]);
 
   useEffect(() => {
+    if (!sceneReady || !sceneRef.current) return;
     if (!pointFile && pcModel && sceneRef.current) {
       sceneRef.current.remove(pcModel);
       pcModel.geometry?.dispose();
@@ -1126,8 +1202,7 @@ export default function useModelLoader(sceneData, props) {
       colorRefs.segment = null;
     }
     // eslint-disable-next-line
-  }, [pointFile]);
-
+  }, [pointFile, pcModel, sceneReady]);
   return {
     bimModel,
     pcModel,
