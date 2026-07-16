@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import createInfiniteGrid from "./InfiniteGrid";
@@ -34,6 +34,7 @@ export default function useSceneSetup(mountRef) {
   const animationRef = useRef(null);
   const gridRef = useRef(null);
   const axesRef = useRef(null);
+  const [sceneReady, setSceneReady] = useState(false);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -110,6 +111,7 @@ export default function useSceneSetup(mountRef) {
     cameraRef.current = camera;
     rendererRef.current = renderer;
     controlsRef.current = controls;
+    setSceneReady(true);
 
     // Monkey-patch add/remove to catch invalid inserts for debugging
     const origAdd = scene.add.bind(scene);
@@ -258,10 +260,20 @@ export default function useSceneSetup(mountRef) {
     };
 
     window.addEventListener("resize", handleResize);
+    handleResize();
+
+    let resizeObserver = null;
+    if (window.ResizeObserver && mountRef.current) {
+      resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(mountRef.current);
+    }
 
     // ---------- CLEANUP ----------
     return () => {
       window.removeEventListener("resize", handleResize);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       renderer.domElement.removeEventListener("pointerdown", handleGrabDown);
       window.removeEventListener("pointerup", handleGrabUp);
 
@@ -298,6 +310,7 @@ export default function useSceneSetup(mountRef) {
       }
       sceneRef.current = null;
       rendererRef.current = null;
+      setSceneReady(false);
     };
   }, [mountRef]);
 
@@ -308,5 +321,6 @@ export default function useSceneSetup(mountRef) {
     controlsRef,
     gridRef,
     axesRef,
+    sceneReady,
   };
 }
