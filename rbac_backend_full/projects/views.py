@@ -1,6 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 from django.shortcuts import get_object_or_404
 
 from accounts.permissions import RolePermission
@@ -543,7 +544,32 @@ class ProjectImageView(APIView):
             context={"request": request},
         )
         return Response(serializer.data)
-    
+
+    def delete(self, request, project_id):
+        batch_name = request.query_params.get("batch_name")
+        if not batch_name:
+            return Response(
+                {"batch_name": "This field is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        images = ProjectImage.objects.filter(
+            project_id=project_id,
+            batch_name=batch_name,
+        )
+        if not images.exists():
+            return Response(
+                {"error": "No images found for that folder."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        for image in images:
+            if image.image:
+                image.image.delete(save=False)
+        images.delete()
+
+        return Response({"message": "Deleted"})
+
 
 class CameraFileView(APIView):
     parser_classes = [MultiPartParser, FormParser]
