@@ -14,6 +14,7 @@ import {
   Camera,
   FileJson,
   Star,
+  Trash2,
 } from "lucide-react";
 import Topbar from "../../layouts/Topbar";
 import { useToast } from "../../components/ToastContainer";
@@ -55,6 +56,9 @@ export default function PhotoUpload() {
   const [matrixDate, setMatrixDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+  const [cameraDeleteLoading, setCameraDeleteLoading] = useState(false);
+  const [matrixDeleteLoading, setMatrixDeleteLoading] = useState(false);
+  const [folderDeleteLoading, setFolderDeleteLoading] = useState(false);
   const [cameraIsLatest, setCameraIsLatest] = useState(true);
   const [matrixIsLatest, setMatrixIsLatest] = useState(true);
   const [uploadingCamera, setUploadingCamera] = useState(false);
@@ -115,6 +119,24 @@ export default function PhotoUpload() {
     }
   };
 
+  const refreshCameraAndMatrixFiles = async () => {
+    if (!projectId || !selectedFolder) return;
+    try {
+      const [camRes, matRes] = await Promise.all([
+        API.get(`projects/${projectId}/camera/`, {
+          params: { batch_name: selectedFolder.name },
+        }),
+        API.get(`projects/${projectId}/matrix/`, {
+          params: { batch_name: selectedFolder.name },
+        }),
+      ]);
+      setCameraFiles(Array.isArray(camRes.data) ? camRes.data : []);
+      setMatrixFiles(Array.isArray(matRes.data) ? matRes.data : []);
+    } catch (err) {
+      console.error("Failed to load camera/matrix files:", err);
+    }
+  };
+
   useEffect(() => {
     fetchImageFolders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,6 +146,62 @@ export default function PhotoUpload() {
     (folder) => folder.name === selectedFolderName,
   );
 
+  const latestCameraFile =
+    cameraFiles.find((file) => file.is_latest) || cameraFiles[0] || null;
+  const latestMatrixFile =
+    matrixFiles.find((file) => file.is_latest) || matrixFiles[0] || null;
+
+  const deleteCameraFile = async (fileId) => {
+    if (!fileId || !projectId) return;
+    if (!window.confirm("Delete this camera file?")) return;
+    setCameraDeleteLoading(true);
+    try {
+      await API.delete(`camera/${fileId}/delete/`);
+      success("Camera file deleted.");
+      await refreshCameraAndMatrixFiles();
+    } catch (err) {
+      error(err.response?.data?.error || "Failed to delete camera file.");
+    } finally {
+      setCameraDeleteLoading(false);
+    }
+  };
+
+  const deleteMatrixFile = async (fileId) => {
+    if (!fileId || !projectId) return;
+    if (!window.confirm("Delete this matrix file?")) return;
+    setMatrixDeleteLoading(true);
+    try {
+      await API.delete(`matrix/${fileId}/delete/`);
+      success("Matrix file deleted.");
+      await refreshCameraAndMatrixFiles();
+    } catch (err) {
+      error(err.response?.data?.error || "Failed to delete matrix file.");
+    } finally {
+      setMatrixDeleteLoading(false);
+    }
+  };
+
+  const deleteImageFolder = async () => {
+    if (!selectedFolder || !projectId) return;
+    if (!window.confirm(`Delete all images in '${selectedFolder.name}'?`))
+      return;
+    setFolderDeleteLoading(true);
+    try {
+      await API.delete(`projects/${projectId}/images/`, {
+        params: { batch_name: selectedFolder.name },
+      });
+      success("Image folder deleted.");
+      setSelectedFolderName(null);
+      await fetchImageFolders();
+      setCameraFiles([]);
+      setMatrixFiles([]);
+    } catch (err) {
+      error(err.response?.data?.error || "Failed to delete image folder.");
+    } finally {
+      setFolderDeleteLoading(false);
+    }
+  };
+
   // --- Fetch camera/matrix file history whenever the selected folder changes ---
   useEffect(() => {
     if (!projectId || !selectedFolder) {
@@ -132,24 +210,7 @@ export default function PhotoUpload() {
       return;
     }
 
-    const fetchFiles = async () => {
-      try {
-        const [camRes, matRes] = await Promise.all([
-          API.get(`projects/${projectId}/camera/`, {
-            params: { batch_name: selectedFolder.name },
-          }),
-          API.get(`projects/${projectId}/matrix/`, {
-            params: { batch_name: selectedFolder.name },
-          }),
-        ]);
-        setCameraFiles(Array.isArray(camRes.data) ? camRes.data : []);
-        setMatrixFiles(Array.isArray(matRes.data) ? matRes.data : []);
-      } catch (err) {
-        console.error("Failed to load camera/matrix files:", err);
-      }
-    };
-
-    fetchFiles();
+    refreshCameraAndMatrixFiles();
   }, [projectId, selectedFolder?.name]);
 
   const selectFolder = (folderName) => {
@@ -511,7 +572,7 @@ export default function PhotoUpload() {
           {selectedFolder && (
             <Card>
               <CardHeader className="bg-slate-50/50 rounded-t-xl border-b mb-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle className="text-lg font-bold text-black">
                       {selectedFolder.name}
@@ -523,11 +584,23 @@ export default function PhotoUpload() {
                         : "—"}
                     </p>
                   </div>
-                  {folders[0]?.name === selectedFolder.name && (
-                    <div className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-300">
-                      ✓ MOST RECENT
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {folders[0]?.name === selectedFolder.name && (
+                      <div className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-300">
+                        ✓ MOST RECENT
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={deleteImageFolder}
+                      disabled={folderDeleteLoading}
+                      className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                    >
+                      <Trash2 className="w-3 h-3 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="pt-6">
@@ -623,29 +696,64 @@ export default function PhotoUpload() {
                     </div>
 
                     {cameraFiles.length > 0 && (
-                      <div className="border-t border-gray-200 pt-2 space-y-1.5 max-h-40 overflow-y-auto">
-                        {cameraFiles.map((f) => (
-                          <div
-                            key={f.id}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <a
-                              href={f.file}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-gray-700 truncate hover:underline"
-                              title={f.file}
-                            >
-                              {f.file.split("/").pop()}
-                            </a>
-                            <div className="flex items-center gap-1 whitespace-nowrap ml-2">
-                              <span className="text-gray-500">{f.date}</span>
-                              {f.is_latest && (
-                                <Star className="w-3 h-3 text-green-600 fill-green-600" />
-                              )}
+                      <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
+                        {latestCameraFile && (
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex-1 min-w-0">
+                              <a
+                                href={latestCameraFile.file}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-gray-700 truncate hover:underline"
+                                title={latestCameraFile.file}
+                              >
+                                {latestCameraFile.file.split("/").pop()}
+                              </a>
+                              <p className="text-[10px] text-gray-500 mt-1">
+                                Latest uploaded file
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
+                              <span className="text-gray-500">
+                                {latestCameraFile.date}
+                              </span>
+                              <Star className="w-3 h-3 text-green-600 fill-green-600" />
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  deleteCameraFile(latestCameraFile.id)
+                                }
+                                disabled={cameraDeleteLoading}
+                                className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                Delete
+                              </Button>
                             </div>
                           </div>
-                        ))}
+                        )}
+                        {cameraFiles
+                          .filter((f) => f.id !== latestCameraFile?.id)
+                          .map((f) => (
+                            <div
+                              key={f.id}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <a
+                                href={f.file}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-gray-700 truncate hover:underline"
+                                title={f.file}
+                              >
+                                {f.file.split("/").pop()}
+                              </a>
+                              <div className="flex items-center gap-1 whitespace-nowrap ml-2">
+                                <span className="text-gray-500">{f.date}</span>
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     )}
                   </div>
@@ -698,29 +806,64 @@ export default function PhotoUpload() {
                     </div>
 
                     {matrixFiles.length > 0 && (
-                      <div className="border-t border-gray-200 pt-2 space-y-1.5 max-h-40 overflow-y-auto">
-                        {matrixFiles.map((f) => (
-                          <div
-                            key={f.id}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <a
-                              href={f.file}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-gray-700 truncate hover:underline"
-                              title={f.file}
-                            >
-                              {f.file.split("/").pop()}
-                            </a>
-                            <div className="flex items-center gap-1 whitespace-nowrap ml-2">
-                              <span className="text-gray-500">{f.date}</span>
-                              {f.is_latest && (
-                                <Star className="w-3 h-3 text-green-600 fill-green-600" />
-                              )}
+                      <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
+                        {latestMatrixFile && (
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex-1 min-w-0">
+                              <a
+                                href={latestMatrixFile.file}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-gray-700 truncate hover:underline"
+                                title={latestMatrixFile.file}
+                              >
+                                {latestMatrixFile.file.split("/").pop()}
+                              </a>
+                              <p className="text-[10px] text-gray-500 mt-1">
+                                Latest uploaded file
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
+                              <span className="text-gray-500">
+                                {latestMatrixFile.date}
+                              </span>
+                              <Star className="w-3 h-3 text-green-600 fill-green-600" />
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  deleteMatrixFile(latestMatrixFile.id)
+                                }
+                                disabled={matrixDeleteLoading}
+                                className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                              >
+                                <Trash2 className="w-3 h-3 mr-1" />
+                                Delete
+                              </Button>
                             </div>
                           </div>
-                        ))}
+                        )}
+                        {matrixFiles
+                          .filter((f) => f.id !== latestMatrixFile?.id)
+                          .map((f) => (
+                            <div
+                              key={f.id}
+                              className="flex items-center justify-between text-xs"
+                            >
+                              <a
+                                href={f.file}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-gray-700 truncate hover:underline"
+                                title={f.file}
+                              >
+                                {f.file.split("/").pop()}
+                              </a>
+                              <div className="flex items-center gap-1 whitespace-nowrap ml-2">
+                                <span className="text-gray-500">{f.date}</span>
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     )}
                   </div>
