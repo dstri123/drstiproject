@@ -624,6 +624,7 @@ export default function useModelLoader(sceneData, props) {
       if (isCancelled || !sceneRef.current) return;
       let meshCount = 0;
       const categoryMap = new Map(); // NEW — category -> [names]
+      const categoryCounts = {};
       object.traverse((child) => {
         if (child.isMesh) {
           meshCount++;
@@ -636,6 +637,7 @@ export default function useModelLoader(sceneData, props) {
               child.parent.name.trim()) ||
             `Element ${meshCount}`;
           const category = categorizeElementName(elementName);
+          categoryCounts[category] = (categoryCounts[category] || 0) + 1;
           if (!categoryMap.has(category)) categoryMap.set(category, []);
           categoryMap.get(category).push(elementName);
 
@@ -679,6 +681,7 @@ export default function useModelLoader(sceneData, props) {
         categories[cat] = names.sort((a, b) => a.localeCompare(b));
       });
       setBimCategories?.(categories);
+      console.log("Category Counts:", categoryCounts);
       // If a saved transform exists, apply it exactly as-saved.
       // Otherwise auto-orient and center the model in the scene.
       if (bimFile?.transform) {
