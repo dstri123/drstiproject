@@ -1,19 +1,23 @@
-import { useState, useCallback, createContext, useContext } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+} from "react";
 import Toast from "./Toast";
 
 const ToastContext = createContext();
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
+  const idCounter = useRef(0);
 
-  const addToast = useCallback(
-    (message, type = "success", duration = 3000) => {
-      const id = Date.now();
-      setToasts((prev) => [...prev, { id, message, type, duration }]);
-      return id;
-    },
-    []
-  );
+  const addToast = useCallback((message, type = "success", duration = 3000) => {
+    const id = ++idCounter.current;
+    setToasts((prev) => [...prev, { id, message, type, duration }]);
+    return id;
+  }, []);
 
   const removeToast = useCallback((id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
@@ -21,17 +25,17 @@ export function ToastProvider({ children }) {
 
   const success = useCallback(
     (message, duration = 3000) => addToast(message, "success", duration),
-    [addToast]
+    [addToast],
   );
 
   const error = useCallback(
     (message, duration = 4000) => addToast(message, "error", duration),
-    [addToast]
+    [addToast],
   );
 
   const info = useCallback(
     (message, duration = 3000) => addToast(message, "info", duration),
-    [addToast]
+    [addToast],
   );
 
   const value = { addToast, removeToast, success, error, info };

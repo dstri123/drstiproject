@@ -139,7 +139,6 @@ export default function PhotoUpload() {
 
   useEffect(() => {
     fetchImageFolders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const selectedFolder = folders.find(
