@@ -1,0 +1,61 @@
+var EMPTY = 6;
+var SET_BEGIN = 7;
+var SET_END = 8;
+var LINE_END = 9;
+function ms() {
+  return new Date().getTime();
+}
+var IfcAPI2 = class {
+  constructor() {
+    this.wasmModule = void 0;
+    this.wasmPath = "";
+    this.isWasmPathAbsolute = false;
+    this.modelSchemaList = [];
+    this.ifcGuidMap = new Map();
+    this.properties = new Properties(this);
+  }
+  Init(customLocateFileHandler) {
+    return __async(this, null, function* () {
+      if (WebIFCWasm) {
+        let locateFileHandler = (path, prefix) => {
+          if (path.endsWith(".wasm")) {
+            if (this.isWasmPathAbsolute) {
+              return this.wasmPath + path;
+            }
+            return prefix + this.wasmPath + path;
+          }
+          return prefix + path;
+        };
+        this.wasmModule = yield WebIFCWasm({ noInitialRun: true, locateFile: customLocateFileHandler || locateFileHandler });
+      } else {
+        Log.error(`Could not find wasm module at './web-ifc' from web-ifc-api.ts`);
+      }
+    });
+  }
+  OpenModels(dataSets, settings) {
+    let s = __spreadValues({
+      MEMORY_LIMIT: 3221225472
+    }, settings);
+    s.MEMORY_LIMIT = s.MEMORY_LIMIT / dataSets.length;
+    let modelIDs = [];
+    for (let dataSet of dataSets)
+      modelIDs.push(this.OpenModel(dataSet, s));
+    return modelIDs;
+  }
+  OpenModel(data, settings) {
+    let s = __spreadValues({
+      COORDINATE_TO_ORIGIN: false,
+      USE_FAST_BOOLS: true,
+      CIRCLE_SEGMENTS_LOW: 5,
+      CIRCLE_SEGMENTS_MEDIUM: 8,
+      CIRCLE_SEGMENTS_HIGH: 12,
+      BOOL_ABORT_THRESHOLD: 1e4,
+      TAPE_SIZE: 67108864,
+      MEMORY_LIMIT: 3221225472
+    }, settings);
+    let result = this.wasmModule.OpenModel(s, (destPtr, offsetInSrc, destSize) => {
+      let srcSize = Math.min(data.byteLength - offsetInSrc, destSize);
+      let dest = this.wasmModule.HEAPU8.subarray(destPtr, destPtr + srcSize);
+      let src = data.subarray(offsetInSrc, offsetInSrc + srcSize);
+      dest.set(src);
+      return srcSize;

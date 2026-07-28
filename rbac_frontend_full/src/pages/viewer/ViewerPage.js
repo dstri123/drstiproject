@@ -270,12 +270,17 @@ export default function ViewerPage() {
           (m) => m.is_latest,
         ) || (batchMatrixItems.length ? batchMatrixItems : matrixItems)[0];
 
-      if (matrixItem?.file) {
+      if (!matrixItem) {
+        setUploadedAlignmentMatrix(null);
+      } else if (!matrixItem.file) {
+        console.warn(
+          "Matrix item found but no file URL available.",
+          matrixItem,
+        );
+        setUploadedAlignmentMatrix(null);
+      } else {
         try {
-          const matResp = await fetchWithRetry(
-            resolveRemoteUrl(matrixItem.file),
-            { responseType: "json" },
-          );
+          const matResp = await fetchWithRetry(resolveRemoteUrl(matrixItem.file));
           const matJson = await matResp.json();
           const isValid4x4 =
             Array.isArray(matJson) &&
@@ -283,14 +288,12 @@ export default function ViewerPage() {
             matJson.every((row) => Array.isArray(row) && row.length === 4);
           setUploadedAlignmentMatrix(isValid4x4 ? matJson : null);
           if (!isValid4x4) {
-            console.error("Matrix file is not a 4x4 array", matJson);
+            console.warn("Matrix file is not a 4x4 array", matJson);
           }
         } catch (matErr) {
-          console.error("Failed to load matrix file", matErr);
+          console.warn("Failed to load matrix file", matErr);
           setUploadedAlignmentMatrix(null);
         }
-      } else {
-        setUploadedAlignmentMatrix(null);
       }
 
       const pickByExtension = (items, exts) =>
