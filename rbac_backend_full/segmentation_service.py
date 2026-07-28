@@ -198,7 +198,23 @@ def run_segmentation(image: Image.Image, return_overlay: bool = True):
 
 
 app = FastAPI(title="Construction Segmentation Service")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+def _get_allowed_origins() -> list[str]:
+    raw_origins = os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173",
+    )
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_get_allowed_origins(),
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class Base64Request(BaseModel):
