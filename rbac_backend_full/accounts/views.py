@@ -48,8 +48,10 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        login_value = request.data.get("username")
+        user = User.objects.filter(email__iexact=login_value).first() if login_value else None
         user = authenticate(
-            username=request.data.get("username"),
+            username=user.username if user else login_value,
             password=request.data.get("password")
         )
 

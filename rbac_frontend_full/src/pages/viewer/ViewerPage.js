@@ -246,11 +246,11 @@ export default function ViewerPage() {
 
       if (cameraItem?.file) {
         try {
-          const camResp = await fetchWithRetry(
+          const camResponse = await API.get(
             resolveRemoteUrl(cameraItem.file),
+            { responseType: "blob" },
           );
-          const camBlob = await camResp.blob();
-          setCameraPositionsFile(camBlob);
+          setCameraPositionsFile(camResponse.data);
         } catch (camErr) {
           console.error("Failed to load camera positions file", camErr);
           setCameraPositionsFile(null);
