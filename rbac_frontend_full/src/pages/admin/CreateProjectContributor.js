@@ -60,7 +60,7 @@ export default function CreateProjectContributor() {
 
     if (!formData.username.trim()) {
       newErrors.username = "Username is required";
-    } else if (!usernameAvailable && formData.username.trim()) {
+    } else if (usernameAvailable === false) {
       newErrors.username = "Username is already taken";
     }
 
