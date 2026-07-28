@@ -688,6 +688,8 @@ class PointCloudToPLYView(APIView):
 
         except ImportError as e:
             return Response({"error": str(e)}, status=status.HTTP_501_NOT_IMPLEMENTED)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -772,6 +774,9 @@ def _file_to_ply_bytes(path, ext, max_points=2_000_000):
         from .progress import read_pointcloud_points
         pts = read_pointcloud_points(path, max_points=max_points)
         colors = None
+
+    if len(pts) == 0:
+        raise ValueError("The point-cloud file contains no readable points.")
 
     # Sub-sample large clouds.
     if len(pts) > max_points:

@@ -47,6 +47,8 @@ urlpatterns = [
 
     # LAS/LAZ/PTS/XYZ → PLY conversion for the 3D viewer
     path('tools/pointcloud-to-ply/', PointCloudToPLYView.as_view(), name='processing-pointcloud-to-ply'),
+     # Backward-compatible alias for older frontend bundles.
+     path('tools/pointcloud-to-play/', PointCloudToPLYView.as_view(), name='processing-pointcloud-to-play'),
 
     # Dense ICP point-cloud alignment (numpy/scipy)
     path('align/icp/',          ICPAlignView.as_view(),         name='processing-align-icp'),

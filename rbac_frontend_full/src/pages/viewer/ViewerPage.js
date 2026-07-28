@@ -249,6 +249,10 @@ export default function ViewerPage() {
           const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
             responseType: "blob",
           });
+          const camResponse = await API.get(
+            resolveRemoteUrl(cameraItem.file),
+            { responseType: "blob" },
+          );
           setCameraPositionsFile(camResponse.data);
         } catch (camErr) {
           console.error("Failed to load camera positions file", camErr);

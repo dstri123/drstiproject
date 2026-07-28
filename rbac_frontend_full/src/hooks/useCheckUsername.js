@@ -36,6 +36,9 @@ export function useCheckUsername() {
       clearTimeout(debounceTimer.current);
     }
 
+    setIsAvailable(null);
+    setMessage("");
+
     debounceTimer.current = setTimeout(() => {
       checkUsername(username);
     }, 500);

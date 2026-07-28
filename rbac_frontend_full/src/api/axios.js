@@ -26,4 +26,49 @@ API.interceptors.request.use((config) => {
   return config;
 });
 
+API.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    const refresh = localStorage.getItem("refresh");
+    const isAuthRequest = originalRequest?.url?.includes("auth/login/");
+
+    const clearExpiredSession = () => {
+      localStorage.removeItem("token");
+      localStorage.removeItem("access");
+      localStorage.removeItem("refresh");
+      if (!isAuthRequest && window.location.pathname !== "/login") {
+        window.location.assign("/login");
+      }
+    };
+
+    if (
+      error.response?.status !== 401 ||
+      originalRequest?._retry ||
+      isAuthRequest
+    ) {
+      if (error.response?.status === 401 && !refresh) {
+        clearExpiredSession();
+      }
+      return Promise.reject(error);
+    }
+
+    originalRequest._retry = true;
+
+    try {
+      const refreshResponse = await axios.post(
+        `${API.defaults.baseURL}auth/token/refresh/`,
+        { refresh },
+      );
+      const access = refreshResponse.data.access;
+      localStorage.setItem("token", access);
+      originalRequest.headers.Authorization = `Bearer ${access}`;
+      return API(originalRequest);
+    } catch (refreshError) {
+      clearExpiredSession();
+      return Promise.reject(refreshError);
+    }
+  },
+);
+
 export default API;
