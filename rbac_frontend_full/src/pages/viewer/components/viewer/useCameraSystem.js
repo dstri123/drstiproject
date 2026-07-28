@@ -505,6 +505,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
         cameraHelpersRef.current.push(helper);
       });
       updateCameraPath();
+      bump();
     },
     [sceneRef, cleanupAll, showCameras, pcModel, updateCameraPath],
   );
@@ -1141,6 +1142,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     toggleCameraVisibility,
     handleManualCameraImageUpload,
     manualCameras,
+    allCameras: camerasRef.current, // ← NEW: real posed cameras (DJI batch + manual), THREE.PerspectiveCamera objects with world transforms already applied
     transformRef,
     setActiveCamera,
     clearActiveCamera,
