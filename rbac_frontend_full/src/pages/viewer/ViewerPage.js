@@ -274,6 +274,7 @@ export default function ViewerPage() {
         try {
           const matResp = await fetchWithRetry(
             resolveRemoteUrl(matrixItem.file),
+            { responseType: "json" },
           );
           const matJson = await matResp.json();
           const isValid4x4 =
@@ -517,12 +518,31 @@ export default function ViewerPage() {
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [wasCompressed, setWasCompressed] = useState(false);
 
+  const [toggleSemanticSegmentation, setToggleSemanticSegmentation] =
+    useState(null);
+  const [isSemanticActive, setIsSemanticActive] = useState(false);
+  const [isSamRunning, setIsSamRunning] = useState(false);
+  const [samProgress, setSamProgress] = useState(null);
   const handleModelDataChange = useCallback(
-    ({ toggleSegmentation, isSegmented, isSegmenting, wasCompressed }) => {
+    ({
+      // ── segmentation ──
+      toggleSegmentation,
+      isSegmented,
+      isSegmenting,
+      wasCompressed,
+      toggleSemanticSegmentation,
+      isSemanticActive,
+      isSamRunning,
+      samProgress,
+    }) => {
       setToggleSegmentation(() => toggleSegmentation);
       setIsSegmented(isSegmented);
       setIsSegmenting(isSegmenting);
       setWasCompressed(wasCompressed);
+      setToggleSemanticSegmentation(() => toggleSemanticSegmentation);
+      setIsSemanticActive(isSemanticActive);
+      setIsSamRunning(isSamRunning);
+      setSamProgress(samProgress);
     },
     [],
   );
@@ -574,6 +594,10 @@ export default function ViewerPage() {
         isSegmented,
         isSegmenting,
         wasCompressed,
+        toggleSemanticSegmentation,
+        isSemanticActive,
+        isSamRunning,
+        samProgress,
       }}
     >
       <div style={{ width: "100%", height: "100%", position: "relative" }}>

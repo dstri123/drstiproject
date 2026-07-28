@@ -18,6 +18,7 @@ import useModelLoader from "./useModelLoader";
 import usePicking from "./usePicking";
 import useAlignment from "./useAlignment";
 import useOverlap from "./useOverlap";
+import usePointCloudSAMSegmentation from "./usePointCloudSAMSegmentation";
 import useCameraSystem from "./useCameraSystem";
 import CameraPreviewPanel from "./CameraPreviewPanel";
 import useTransformControls from "./useTransformControls";
@@ -748,6 +749,7 @@ function ThreeViewer({
   }, [geoMapOpen, geoMapImageUrl, groundMeters, sceneData.sceneRef]);
 
   // ── Pass segmentation state up to App ────────────────────────────────────
+  // ── Pass RANSAC segmentation state up to App ─────────────────────────────
   useEffect(() => {
     onModelDataChange?.({
       toggleSegmentation: modelData.toggleSegmentation,
@@ -981,6 +983,7 @@ function ThreeViewer({
     previewCanvasRef,
     handleManualCameraImageUpload,
     manualCameras,
+    allCameras, // ← NEW
     deleteCamera,
     toggleCameraVisibility,
     toggleCameraPath,
@@ -998,6 +1001,28 @@ function ThreeViewer({
     deleteCamera,
     toggleCameraVisibility,
     onManualCamerasChange,
+  ]);
+
+  // ── SAM construction segmentation (needs manualCameras, so must live here) ─
+  const samData = usePointCloudSAMSegmentation(
+    modelData,
+    // manualCameras,
+    allCameras,
+  );
+
+  useEffect(() => {
+    onModelDataChange?.({
+      toggleSemanticSegmentation: samData.toggleSemanticSegmentation,
+      isSemanticActive: samData.isSemanticActive,
+      isSamRunning: samData.isRunning,
+      samProgress: samData.progress,
+    });
+  }, [
+    samData.toggleSemanticSegmentation,
+    samData.isSemanticActive,
+    samData.isRunning,
+    samData.progress,
+    onModelDataChange,
   ]);
 
   useTransformControls(sceneData);
@@ -1066,7 +1091,7 @@ function ThreeViewer({
           </div>
         )}
 
-      {modelData.isConvertingIfc && (
+      {/* {modelData.isConvertingIfc && (
         <div
           style={{
             position: "absolute",
@@ -1108,7 +1133,7 @@ function ThreeViewer({
             </div>
           </div>
         </div>
-      )}
+      )} */}
 
       {selectedLabel && (
         <div
