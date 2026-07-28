@@ -4,6 +4,7 @@ from accounts.views import CheckAdminExists, ProfileView, ProfileUpdateView, Log
 from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -15,6 +16,7 @@ urlpatterns = [
     # 🔐 Authentication
     path('api/v1/auth/signup/', include('accounts.urls')),
     path('api/v1/auth/login/', LoginView.as_view(), name='token_obtain_pair'),
+    path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/v1/auth/', include('accounts.urls')),
 
     # 👤 User Profile

@@ -436,7 +436,10 @@ export default function useModelLoader(sceneData, props) {
     let lastErr;
     for (let i = 0; i < attempts; i++) {
       try {
-        return await fetch(url);
+        const response = await API.get(url, {
+          responseType: "blob",
+        });
+        return response.data;
       } catch (err) {
         lastErr = err;
         console.warn(
@@ -472,13 +475,7 @@ export default function useModelLoader(sceneData, props) {
     if (!source) return null;
     if (source instanceof Blob) return source;
     if (source?.url) {
-      const response = await fetchWithRetry(source.url);
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch remote asset: ${response.status} ${response.statusText}`,
-        );
-      }
-      return await response.blob();
+      return await fetchWithRetry(source.url);
     }
     return null;
   };

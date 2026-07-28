@@ -37,6 +37,7 @@ export default function Login() {
       });
 
       localStorage.setItem("token", res.data.access);
+      localStorage.setItem("refresh", res.data.refresh);
 
       // Extract role from user object or fallback to top-level
       const userRole = res.data.user?.role || res.data.role || "";
