@@ -7,8 +7,6 @@ from .views import (
     ProcessingJobDetailView,
     DiagnosticsView,
     AuditLogView,
-    ConvertIFCToFBXView,
-    IFCToGLBView,
     PointCloudToPLYView,
     ICPAlignView,
     OSMTileProxyView,
@@ -38,12 +36,6 @@ urlpatterns = [
 
     # Audit log — who did what and when
     path('audit/',           AuditLogView.as_view(),            name='processing-audit'),
-
-    # IFC to FBX conversion tool
-    path('tools/convert-ifc/',  ConvertIFCToFBXView.as_view(),  name='processing-convert-ifc'),
-
-    # IFC to GLB streaming conversion for the 3D viewer
-    path('tools/ifc-to-glb/',   IFCToGLBView.as_view(),         name='processing-ifc-to-glb'),
 
     # LAS/LAZ/PTS/XYZ → PLY conversion for the 3D viewer
     path('tools/pointcloud-to-ply/', PointCloudToPLYView.as_view(), name='processing-pointcloud-to-ply'),

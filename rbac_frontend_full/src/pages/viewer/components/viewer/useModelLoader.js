@@ -3,7 +3,30 @@ import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { IFCLoader } from "web-ifc-three/IFCLoader";
 import API from "../../../../api/axios";
+
+// ─── Client-side IFC parsing (web-ifc WASM) ───────────────────────────────────
+// Loads and renders IFC files directly in the browser instead of round-tripping
+// them through the server's ifcopenshell conversion. Requires web-ifc's single-
+// threaded WASM binary (web-ifc.wasm, copied from node_modules/web-ifc/) to be
+// served from public/wasm/ — see public/wasm/README.md. Deliberately not using
+// the multi-threaded build here: it needs COOP/COEP cross-origin isolation
+// plus a worker script (web-ifc-mt.worker.js) that isn't shipped as a
+// fetchable file in the npm package.
+let ifcLoaderSingleton = null;
+function getIfcLoader() {
+  if (!ifcLoaderSingleton) {
+    ifcLoaderSingleton = new IFCLoader();
+    // ifcManager.setWasmPath() never forwards an "absolute" flag to the
+    // underlying IfcAPI, so it always resolves as scriptDirectory + path,
+    // turning a root path like "/wasm/" into a broken nested URL. Calling
+    // the lower-level ifcAPI directly with absolute=true gives a clean,
+    // browser-root-relative "/wasm/web-ifc.wasm".
+    ifcLoaderSingleton.ifcManager.ifcAPI.SetWasmPath("/wasm/", true);
+  }
+  return ifcLoaderSingleton;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const COMPRESSION_THRESHOLD_BYTES = 700 * 1024 * 1024; // 700 MB
@@ -84,17 +107,25 @@ function categorizeElementName(name) {
 }
 // Pick a material colour for a BIM mesh: keep the colour authored in the FBX
 // when it is meaningful, otherwise fall back to the palette by element name.
-function bimColorFor(child) {
-  const orig = Array.isArray(child.material)
-    ? child.material[0]
-    : child.material;
+// sourceMaterial/materialIndex let callers pass a specific entry from a
+// multi-material array (e.g. a merged IFCModel from web-ifc, which carries
+// one material per original IFC surface style) so each sub-material keeps
+// its own colour instead of the whole mesh collapsing to material[0]'s.
+function bimColorFor(child, sourceMaterial, materialIndex) {
+  const orig =
+    sourceMaterial ??
+    (Array.isArray(child.material) ? child.material[0] : child.material);
   if (orig?.color) {
     const { r, g, b } = orig.color;
     const isDefaultWhite = r > 0.95 && g > 0.95 && b > 0.95;
     const isNearBlack = r + g + b < 0.06;
     if (!isDefaultWhite && !isNearBlack) return orig.color.clone();
   }
-  const idx = hashString(child.name || "element") % BIM_ELEMENT_PALETTE.length;
+  const key =
+    typeof materialIndex === "number"
+      ? `${child.name || "element"}#${materialIndex}`
+      : child.name || "element";
+  const idx = hashString(key) % BIM_ELEMENT_PALETTE.length;
   return new THREE.Color(BIM_ELEMENT_PALETTE[idx]);
 }
 
@@ -485,18 +516,31 @@ export default function useModelLoader(sceneData, props) {
     return blob ? URL.createObjectURL(blob) : null;
   };
 
-  // Send an IFC blob to the backend (ifcopenshell) and get a GLB back that
-  // the standard GLTF loader can render.
-  const convertIfcToGlbUrl = async (source) => {
+  // Parse and render an IFC file directly in the browser (web-ifc WASM) — no
+  // server round trip.
+  const loadIfcDirect = async (source) => {
     const blob = await resolveBlob(source);
     if (!blob) throw new Error("Unable to read IFC file.");
-    const formData = new FormData();
-    formData.append("file", blob, source?.name || "model.ifc");
-    const res = await API.post("processing/tools/ifc-to-glb/", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-      responseType: "blob",
-    });
-    return URL.createObjectURL(res.data);
+    const url = URL.createObjectURL(blob);
+    try {
+      const loader = getIfcLoader();
+      const ifcModel = await new Promise((resolve, reject) => {
+        loader.load(
+          url,
+          resolve,
+          undefined,
+          (err) =>
+            reject(
+              err instanceof Error
+                ? err
+                : new Error("Failed to parse IFC file in the browser."),
+            ),
+        );
+      });
+      return ifcModel;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   };
 
   const applySavedTransform = (object, transform) => {
@@ -639,13 +683,20 @@ export default function useModelLoader(sceneData, props) {
           categoryMap.get(category).push(elementName);
 
           const hasVertexColors = Boolean(child.geometry?.attributes?.color);
-          child.material = new THREE.MeshStandardMaterial({
-            color: hasVertexColors ? 0xffffff : bimColorFor(child),
-            vertexColors: hasVertexColors,
-            roughness: 0.8,
-            metalness: 0.05,
-            side: THREE.DoubleSide, // IFC faces are often inverted
-          });
+          const makeMat = (color) =>
+            new THREE.MeshStandardMaterial({
+              color: hasVertexColors ? 0xffffff : color,
+              vertexColors: hasVertexColors,
+              roughness: 0.8,
+              metalness: 0.05,
+              side: THREE.DoubleSide, // IFC faces are often inverted
+            });
+          // A merged web-ifc IFCModel keeps one material per original IFC
+          // surface style across its geometry groups — preserve that array
+          // instead of collapsing it to a single flat colour.
+          child.material = Array.isArray(child.material)
+            ? child.material.map((mat, i) => makeMat(bimColorFor(child, mat, i)))
+            : makeMat(bimColorFor(child));
 
           // Thin dark edge lines give the clean "technical drawing" look
           // (like IFCtoFDS) without removing the per-element colors that
@@ -712,27 +763,11 @@ export default function useModelLoader(sceneData, props) {
         setError(null);
 
         if (isValidIFC(bimFile)) {
-          // IFC: convert on the server to GLB, then load with GLTFLoader
-          setIsConvertingIfc(true);
-          try {
-            objectUrl = await convertIfcToGlbUrl(bimFile);
-          } finally {
-            setIsConvertingIfc(false);
-          }
-          if (isCancelled) {
-            URL.revokeObjectURL(objectUrl);
-            return;
-          }
-          new GLTFLoader().load(
-            objectUrl,
-            (gltf) => setupBimObject(gltf.scene, true),
-            undefined,
-            (err) => {
-              console.error("GLB Load Error:", err);
-              onError?.("Failed to display converted IFC model");
-              setIsLoadingBim(false);
-            },
-          );
+          // IFC: parse and render directly in the browser (web-ifc WASM)
+          const ifcModel = await loadIfcDirect(bimFile);
+          if (isCancelled) return;
+          // Raw IFC coordinates are Z-up, so let the upright heuristic run.
+          setupBimObject(ifcModel, false);
         } else {
           objectUrl = await createBlobUrl(bimFile);
           if (!objectUrl) {
@@ -753,10 +788,7 @@ export default function useModelLoader(sceneData, props) {
         }
       } catch (err) {
         console.error("BIM load error:", err);
-        const serverError =
-          err.response?.data instanceof Blob
-            ? "IFC conversion failed on the server"
-            : err.response?.data?.error;
+        const serverError = err.response?.data?.error;
         const message =
           serverError || err.message || "Failed to load BIM file.";
         setError(message);
@@ -1215,7 +1247,7 @@ export default function useModelLoader(sceneData, props) {
     resetTransform, // restore a single model (BIM or PC) to its auto-placed transform
     setModelOpacity, // (model, 0..1) change a single model's transparency
     setModelScale, // (model, factor) scale a model relative to its initial size
-    isConvertingIfc, // true while the server converts an uploaded IFC to GLB
+    isConvertingIfc, // true while an uploaded IFC is being parsed (client-side, or via the server GLB fallback)
     isLoadingBim, // true while the BIM file is being parsed/placed
     isLoadingPc, // true while the point cloud file is being parsed/placed
     isLoadingModel: isLoadingBim || isLoadingPc || isConvertingIfc,

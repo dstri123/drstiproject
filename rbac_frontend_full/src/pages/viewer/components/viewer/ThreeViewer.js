@@ -31,9 +31,9 @@ import ClipBar from "./ClipBar";
 import LeafletMap from "./LeafletMap";
 import API from "../../../../api/axios";
 
-// Same-origin-ish backend proxy for OSM tiles. Needed because the viewer runs
-// cross-origin isolated (COEP) for SharedArrayBuffer; the proxy adds the CORP
-// header so tiles load in every browser. {z}/{x}/{y} are filled by Leaflet.
+// Same-origin-ish backend proxy for OSM tiles, so tile requests go through
+// our own API instead of directly to the OSM CDN. {z}/{x}/{y} are filled by
+// Leaflet.
 const OSM_TILE_PROXY =
   API.defaults.baseURL.replace(/\/$/, "") +
   "/processing/osm-tile/{z}/{x}/{y}.png";
