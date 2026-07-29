@@ -49,6 +49,9 @@ export default function ContextPanel(props) {
     setBimVisible,
     setPcVisible,
     setCameraPositionsFile,
+    cameraPositionsFile,
+    cameraFileName,
+    onClearCameraFile,
     showCameras,
     setShowCameras,
     selectedElement,
@@ -528,6 +531,78 @@ export default function ContextPanel(props) {
           accept=".txt"
           onFileSelected={setCameraPositionsFile}
         />
+
+        {/* ── Loaded camera TXT file row ── */}
+        {cameraPositionsFile && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 10px",
+              marginBottom: 7,
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: 6,
+            }}
+          >
+            {/* file icon */}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#16a34a"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ flexShrink: 0 }}
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+            <span
+              style={{
+                flex: 1,
+                fontSize: 11,
+                fontWeight: 500,
+                color: "#166534",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={cameraFileName || "camera.txt"}
+            >
+              {cameraFileName || "camera.txt"}
+            </span>
+            <button
+              title="Remove camera TXT file"
+              onClick={() => onClearCameraFile?.()}
+              style={{
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 20,
+                height: 20,
+                padding: 0,
+                background: "transparent",
+                border: "1px solid #fca5a5",
+                borderRadius: 4,
+                cursor: "pointer",
+                color: "#dc2626",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#fef2f2")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <Trash2 size={11} />
+            </button>
+          </div>
+        )}
+
         <CameraFolderZone />
 
         <div style={divider} />

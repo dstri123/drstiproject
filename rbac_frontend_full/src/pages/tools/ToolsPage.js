@@ -7,16 +7,7 @@ import { ArrowRight, FileText } from "lucide-react";
 export default function ToolsPage() {
   const navigate = useNavigate();
 
-  const tools = [
-    {
-      id: "ifc-to-fbx",
-      name: "IFC to FBX Converter",
-      description: "Convert IFC (Industry Foundation Classes) files to FBX format for 3D visualization",
-      icon: <FileText className="w-12 h-12 text-black" />,
-      path: "/tools/ifc-converter",
-      category: "Conversion",
-    },
-  ];
+  const tools = [];
 
   return (
     <div className="px-4 sm:px-6 py-8 max-w-6xl mx-auto">

@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { IFCLoader } from "web-ifc-three/IFCLoader";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import BlenderViewportGizmo from "../viewer/components/gizmo/BlenderViewportGizmo";
 import Header from "../viewer/layout/Header";
@@ -52,19 +53,13 @@ async function fetchAsBlob(url) {
   return URL.createObjectURL(blob);
 }
 
-// Convert an .ifc (server URL) to a GLB blob URL via the backend converter —
-// the same endpoint the Viewer uses (with its disk cache), so the browser
-// never loads web-ifc/WASM here.
-async function ifcUrlToGlbBlobUrl(ifcServerUrl) {
-  const tmpUrl = await fetchAsBlob(ifcServerUrl);
-  const ifcBlob = await (await fetch(tmpUrl)).blob();
-  URL.revokeObjectURL(tmpUrl);
-  const fd = new FormData();
-  fd.append("file", ifcBlob, "model.ifc");
-  const res = await API.post("processing/tools/ifc-to-glb/", fd, {
-    responseType: "blob",
-  });
-  return URL.createObjectURL(res.data);
+let ifcLoaderSingleton = null;
+function getIfcLoader() {
+  if (!ifcLoaderSingleton) {
+    ifcLoaderSingleton = new IFCLoader();
+    ifcLoaderSingleton.ifcManager.ifcAPI.SetWasmPath("/wasm/", true);
+  }
+  return ifcLoaderSingleton;
 }
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -835,19 +830,13 @@ function CompareScene({ uploadsByDate }) {
             );
             URL.revokeObjectURL(blob);
           } else {
-            const glbUrl = await ifcUrlToGlbBlobUrl(url);
-            await new Promise((resolve, reject) =>
-              new GLTFLoader().load(
-                glbUrl,
-                (g) => {
-                  finish(g.scene);
-                  resolve();
-                },
-                undefined,
-                reject,
-              ),
-            );
-            URL.revokeObjectURL(glbUrl);
+            const blob = await fetchAsBlob(url);
+            const loader = getIfcLoader();
+            const ifcModel = await new Promise((resolve, reject) => {
+              loader.load(blob, resolve, undefined, reject);
+            });
+            finish(ifcModel);
+            URL.revokeObjectURL(blob);
           }
         }
       } catch (e) {

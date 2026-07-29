@@ -50,6 +50,8 @@ export default function ViewerPage() {
 
   // -------- CAMERA --------
   const [cameraPositionsFile, setCameraPositionsFile] = useState(null);
+  // Display name for the loaded camera TXT (set from server filename or user upload name)
+  const [cameraFileName, setCameraFileName] = useState(null);
   const [cameraImages, setCameraImages] = useState([]);
 
   // Matrix File (.json) uploaded alongside a photo batch — a raw 4x4
@@ -251,12 +253,17 @@ export default function ViewerPage() {
             { responseType: "blob" },
           );
           setCameraPositionsFile(camResponse.data);
+          // Derive a display name from the server URL
+          const rawName = cameraItem.file.split("?")[0].split("/").pop();
+          setCameraFileName(decodeURIComponent(rawName) || "camera.txt");
         } catch (camErr) {
           console.error("Failed to load camera positions file", camErr);
           setCameraPositionsFile(null);
+          setCameraFileName(null);
         }
       } else {
         setCameraPositionsFile(null);
+        setCameraFileName(null);
       }
 
       // Matrix File (.json) for the same batch — a raw 4x4 transform applied
@@ -575,7 +582,16 @@ export default function ViewerPage() {
         pcVisible,
         setBimVisible,
         setPcVisible,
-        setCameraPositionsFile,
+        setCameraPositionsFile: (file) => {
+          setCameraPositionsFile(file);
+          setCameraFileName(file?.name ?? null);
+        },
+        cameraPositionsFile,
+        cameraFileName,
+        onClearCameraFile: () => {
+          setCameraPositionsFile(null);
+          setCameraFileName(null);
+        },
         setCameraImages,
         showCameras,
         setShowCameras,

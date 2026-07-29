@@ -41,7 +41,6 @@ import ProjectDetailsPage from "./pages/roles/ProjectDetailsPage";
 
 // Tools
 import ToolsPage from "./pages/tools/ToolsPage";
-import IFCConverterTool from "./pages/tools/IFCConverterTool";
 
 import ViewerPage from "./pages/viewer/ViewerPage";
 import MapGroundSpike from "./pages/viewer/MapGroundSpike";
@@ -103,7 +102,6 @@ export default function App() {
 
           {/* Tools */}
           <Route path="/tools" element={<ToolsPage />} />
-          <Route path="/tools/ifc-converter" element={<IFCConverterTool />} />
 
           {/* 3D Viewer */}
           <Route path="/viewer/:projectSlug" element={<ViewerPage />} />
