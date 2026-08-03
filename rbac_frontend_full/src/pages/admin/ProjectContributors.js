@@ -68,12 +68,11 @@ export default function ProjectContributors() {
     if (!window.confirm("Are you sure you want to delete this contributor?")) return;
 
     try {
-      // Note: You'll need to add a delete endpoint if it doesn't exist
-      // await API.delete(`users/${id}/`);
+      await API.delete(`users/${id}/`);
       success("Contributor deleted successfully!");
       fetchContributors();
     } catch (err) {
-      error("Failed to delete contributor");
+      error(err.response?.data?.error || "Failed to delete contributor");
     }
   };
 

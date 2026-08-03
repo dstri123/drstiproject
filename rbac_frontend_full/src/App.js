@@ -36,6 +36,7 @@ import { ToastProvider } from "./components/ToastContainer";
 import ManagerDashboard from "./pages/roles/ManagerDashboard";
 import EngineerDashboard from "./pages/roles/EngineerDashboard";
 import DataDashboard from "./pages/roles/DataDashboard";
+import SiteEngineerDashboard from "./pages/roles/SiteEngineerDashboard";
 
 import ProjectDetailsPage from "./pages/roles/ProjectDetailsPage";
 
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="/manager" element={<ManagerDashboard />} />
           <Route path="/engineer" element={<EngineerDashboard />} />
           <Route path="/data" element={<DataDashboard />} />
+          <Route path="/site-engineer" element={<SiteEngineerDashboard />} />
           <Route path="/project/:slug/data" element={<ProjectDetailsPage />} />
 
           {/* Tools */}

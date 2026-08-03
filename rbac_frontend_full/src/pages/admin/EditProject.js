@@ -50,6 +50,7 @@ export default function EditProject() {
 
   const [contributors, setContributors] = useState([]);
   const [selectedContributors, setSelectedContributors] = useState([]);
+  const [originalContributorIds, setOriginalContributorIds] = useState([]);
   const [searchContributor, setSearchContributor] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [tempSelectedContributors, setTempSelectedContributors] = useState([]);
@@ -88,6 +89,7 @@ export default function EditProject() {
 
         if (foundProject.users && Array.isArray(foundProject.users)) {
           setSelectedContributors(foundProject.users);
+          setOriginalContributorIds(foundProject.users.map((u) => u.id));
         }
       } catch (err) {
         error("Failed to load project");
@@ -268,16 +270,30 @@ export default function EditProject() {
         },
       });
 
-      // Update contributors if any are assigned
-      if (selectedContributors.length > 0) {
-        try {
-          const contributorIds = selectedContributors.map((c) => c.id);
-          await API.post(`projects/${project.id}/assign-contributors/`, {
-            user_ids: contributorIds,
+      // Sync contributor assignments against what was originally loaded
+      const currentIds = selectedContributors.map((c) => c.id);
+      const idsToAdd = currentIds.filter((id) => !originalContributorIds.includes(id));
+      const idsToRemove = originalContributorIds.filter((id) => !currentIds.includes(id));
+
+      try {
+        if (idsToAdd.length > 0) {
+          await API.post("assign-user/", {
+            project_id: project.id,
+            user_ids: idsToAdd,
           });
-        } catch (contributorErr) {
-          console.warn("Contributor assignment failed, but project was updated:", contributorErr);
         }
+
+        for (const userId of idsToRemove) {
+          await API.post("remove-user/", {
+            project_id: project.id,
+            user_id: userId,
+          });
+        }
+
+        setOriginalContributorIds(currentIds);
+      } catch (contributorErr) {
+        console.error("Contributor assignment failed:", contributorErr);
+        error("Project details saved, but updating contributors failed");
       }
 
       success("Project updated successfully!");

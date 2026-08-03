@@ -1,0 +1,518 @@
+﻿
+      this.ifcManager.close(this.modelID, scene);
+    }
+  
+>   getExpressId(geometry, faceIndex) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     return this.ifcManager.getExpressId(geometry, faceIndex);
+    }
+  
+    getAllItemsOfType(type, verbose) {
+      return this.ifcManager.getAllItemsOfType(this.modelID, type, verbose);
+    }
+  
+>   getItemProperties(id, recursive = false) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     return this.ifcManager.getItemProperties(this.modelID, id, recursive);
+    }
+  
+    getPropertySets(id, recursive = false) {
+      return this.ifcManager.getTypeProperties(this.modelID, id, recursive);
+    }
+  
+>   getIfcType(id) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     return this.ifcManager.getIfcType(this.modelID, id);
+    }
+  
+    getSpatialStructure() {
+      return this.ifcManager.getSpatialStructure(this.modelID);
+    }
+  
+>   getSubset(material) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     return this.ifcManager.getSubset(this.modelID, material);
+    }
+  
+    removeSubset(material, customID) {
+      const size = placedGeometries.size();
+      for (let i = 0; i < size; i++) {
+        const placedGeometry = placedGeometries.get(i);
+>       let itemMesh = this.getPlacedGeometry(modelID, mesh.expressID, 
+placedGeometry);
+        let geom = itemMesh.geometry.applyMatrix4(itemMesh.matrix);
+        this.storeGeometryByMaterial(placedGeometry.color, geom);
+      }
+    }
+  
+>   getPlacedGeometry(modelID, expressID, placedGeometry) {
+>     const geometry = this.getBufferGeometry(modelID, expressID, 
+placedGeometry);
+      const mesh = new Mesh(geometry);
+      mesh.matrix = this.getMeshMatrix(placedGeometry.flatTransformation);
+      mesh.matrixAutoUpdate = false;
+      return mesh;
+    }
+  
+>   getBufferGeometry(modelID, expressID, placedGeometry) {
+>     const geometry = this.state.api.GetGeometry(modelID, 
+placedGeometry.geometryExpressID);
+      const verts = this.state.api.GetVertexArray(geometry.GetVertexData(), 
+geometry.GetVertexDataSize());
+      const indices = this.state.api.GetIndexArray(geometry.GetIndexData(), 
+geometry.GetIndexDataSize());
+>     const buffer = this.ifcGeometryToBuffer(expressID, verts, indices);
+      geometry.delete();
+      return buffer;
+    }
+      return mat;
+    }
+  
+>   ifcGeometryToBuffer(expressID, vertexData, indexData) {
+      const geometry = new BufferGeometry();
+      const posFloats = new Float32Array(vertexData.length / 2);
+      const normFloats = new Float32Array(vertexData.length / 2);
+        normFloats[i / 2] = vertexData[i + 3];
+        normFloats[i / 2 + 1] = vertexData[i + 4];
+        normFloats[i / 2 + 2] = vertexData[i + 5];
+>       idAttribute[i / 6] = expressID;
+      }
+      geometry.setAttribute('position', new BufferAttribute(posFloats, 3));
+      geometry.setAttribute('normal', new BufferAttribute(normFloats, 3));
+>     geometry.setAttribute('expressID', new BufferAttribute(idAttribute, 1));
+      geometry.setIndex(new BufferAttribute(indexData, 1));
+      return geometry;
+    }
+      }
+    }
+  
+>   getSubsetID(modelID, material, customID = 'DEFAULT') {
+      const baseID = modelID;
+      const materialID = material ? material.uuid : 'DEFAULT';
+      return `${baseID} - ${materialID} - ${customID}`;
+    }
+  
+    fillItemsWithGroupInfo(group, geometry, items) {
+>     let prevExpressID = -1;
+      const materialIndex = group.materialIndex;
+      const materialStart = group.start;
+      const materialEnd = materialStart + group.count - 1;
+      let objectEnd = -1;
+      for (let i = materialStart; i <= materialEnd; i++) {
+        const index = geometry.index.array[i];
+>       const bufferAttr = geometry.attributes.expressID;
+>       const expressID = bufferAttr.array[index];
+>       if (prevExpressID === -1) {
+>         prevExpressID = expressID;
+          objectStart = i;
+        }
+        const isEndOfMaterial = i === materialEnd;
+        if (isEndOfMaterial) {
+>         const store = this.getMaterialStore(items.map, expressID, 
+materialIndex);
+          store.push(objectStart, materialEnd);
+          break;
+        }
+>       if (prevExpressID === expressID)
+          continue;
+>       const store = this.getMaterialStore(items.map, prevExpressID, 
+materialIndex);
+        objectEnd = i - 1;
+        store.push(objectStart, objectEnd);
+>       prevExpressID = expressID;
+        objectStart = i;
+      }
+    }
+  
+    static getAllIndicesOfGroup(modelID, ids, materialIndex, items, flatten = 
+true) {
+      const indicesByGroup = [];
+>     for (const expressID of ids) {
+>       const entry = items.map.get(expressID);
+        if (!entry)
+          continue;
+        const value = entry[materialIndex];
+    initializeSubsetAttributes(subsetGeom, model) {
+      subsetGeom.setAttribute('position', model.geometry.attributes.position);
+      subsetGeom.setAttribute('normal', model.geometry.attributes.normal);
+>     subsetGeom.setAttribute('expressID', 
+model.geometry.attributes.expressID);
+      subsetGeom.setIndex([]);
+    }
+  
+      return this.subsets;
+    }
+  
+>   getSubset(modelID, material, customId) {
+>     const subsetID = this.getSubsetID(modelID, material, customId);
+      return this.subsets[subsetID].mesh;
+    }
+  
+    removeSubset(modelID, material, customID) {
+>     const subsetID = this.getSubsetID(modelID, material, customID);
+      const subset = this.subsets[subsetID];
+      if (!subset)
+        return;
+    }
+  
+    createSubset(config) {
+>     const subsetID = this.getSubsetID(config.modelID, config.material, 
+config.customID);
+      return this.subsetCreator.createSubset(config, subsetID);
+    }
+  
+    removeFromSubset(modelID, ids, customID, material) {
+>     const subsetID = this.getSubsetID(modelID, material, customID);
+      if (!this.subsets[subsetID])
+        return;
+      const previousIDs = this.subsets[subsetID].ids;
+    }
+  
+    clearSubset(modelID, customID, material) {
+>     const subsetID = this.getSubsetID(modelID, material, customID);
+      if (!this.subsets[subsetID])
+        return;
+      this.subsets[subsetID].ids.clear();
+>     const subset = this.getSubset(modelID, material, customID);
+      subset.geometry.setIndex([]);
+    }
+  
+      this.subsets = null;
+    }
+  
+>   getSubsetID(modelID, material, customID = 'DEFAULT') {
+      const baseID = modelID;
+      const materialID = material ? material.uuid : 'DEFAULT';
+      return `${baseID} - ${materialID} - ${customID}`;
+  
+  }
+  
+> const IdAttrName = 'expressID';
+  const PropsNames = {
+    aggregates: {
+      name: IFCRELAGGREGATES,
+    }
+  
+    async getChildren(modelID, node, treeChunks, propNames, includeProperties) 
+{
+>     const children = treeChunks[node.expressID];
+      if (children == undefined)
+        return;
+      const prop = propNames.key;
+        const child = children[i];
+        let node = this.newNode(modelID, child);
+        if (includeProperties) {
+>         const properties = await this.getItemProperties(modelID, 
+node.expressID);
+          node = {
+            ...properties, ...node
+          };
+    newNode(modelID, id) {
+      const typeName = this.getNodeType(modelID, id);
+      return {
+>       expressID: id,
+        type: typeName,
+        children: []
+      };
+    getRelated(rel, propNames, IDs) {
+      const element = rel[propNames.relating];
+      if (!element) {
+>       return console.warn(`The object with ID ${rel.expressID} has a broken 
+reference.`);
+      }
+      if (!Array.isArray(element))
+        IDs.push(element.value);
+  
+    static newIfcProject(id) {
+      return {
+>       expressID: id,
+        type: 'IFCPROJECT',
+        children: []
+      };
+  
+    async getChunks(modelID, chunks, propNames) {}
+  
+>   async getItemProperties(modelID, expressID, recursive = false) {}
+  
+    getNodeType(modelID, id) {}
+  
+  
+  class WebIfcPropertyManager extends BasePropertyManager {
+  
+>   async getItemProperties(modelID, id, recursive = false) {
+      return this.state.api.GetLine(modelID, id, recursive);
+    }
+  
+  
+  class JSONPropertyManager extends BasePropertyManager {
+  
+>   async getItemProperties(modelID, id, recursive = false) {
+      return {
+        ...this.state.models[modelID].jsonData[id]
+      };
+      this.serializer = new PropertySerializer(this.state.api);
+    }
+  
+>   getExpressId(geometry, faceIndex) {
+      if (!geometry.index)
+        throw new Error('Geometry does not have index information.');
+      const geoIndex = geometry.index.array;
+      return this.currentProps.getHeaderLine(modelID, headerType);
+    }
+  
+>   async getItemProperties(modelID, elementID, recursive = false) {
+      this.updateCurrentProps();
+>     return this.currentProps.getItemProperties(modelID, elementID, 
+recursive);
+    }
+  
+    async getAllItemsOfType(modelID, type, verbose) {
+    WorkerActions["GetTypeCodeFromName"] = "GetTypeCodeFromName";
+    WorkerActions["parse"] = "parse";
+    WorkerActions["setupOptionalCategories"] = "setupOptionalCategories";
+>   WorkerActions["getExpressId"] = "getExpressId";
+    WorkerActions["initializeProperties"] = "initializeProperties";
+    WorkerActions["getAllItemsOfType"] = "getAllItemsOfType";
+>   WorkerActions["getItemProperties"] = "getItemProperties";
+    WorkerActions["getMaterialsProperties"] = "getMaterialsProperties";
+    WorkerActions["getPropertySets"] = "getPropertySets";
+    WorkerActions["getSpatialStructure"] = "getSpatialStructure";
+  class FlatMesh {
+  
+    constructor(serializer, flatMesh) {
+>     this.expressID = flatMesh.expressID;
+      this.geometries = serializer.reconstructVector(flatMesh.geometries);
+    }
+  
+        _d;
+      this.position = ((_a = geometry.attributes.position) === null || _a === 
+void 0 ? void 0 : _a.array) || [];
+      this.normal = ((_b = geometry.attributes.normal) === null || _b === void 
+0 ? void 0 : _b.array) || [];
+>     this.expressID = ((_c = geometry.attributes.expressID) === null || _c 
+=== void 0 ? void 0 : _c.array) || [];
+      this.index = ((_d = geometry.index) === null || _d === void 0 ? void 0 : 
+_d.array) || [];
+      this.groups = geometry.groups;
+    }
+  
+    static new(serialized) {
+      const geom = new BufferGeometry();
+>     GeometryReconstructor.set(geom, 'expressID', new 
+Uint32Array(serialized.expressID), 1);
+      GeometryReconstructor.set(geom, 'position', new 
+Float32Array(serialized.position), 3);
+      GeometryReconstructor.set(geom, 'normal', new 
+Float32Array(serialized.normal), 3);
+      geom.setIndex(Array. from (serialized.index));
+  
+    serializeFlatMesh(flatMesh) {
+      return {
+>       expressID: flatMesh.expressID,
+        geometries: this.serializeVector(flatMesh.geometries)
+      };
+    }
+      this.API = WorkerAPIs.properties;
+    }
+  
+>   getExpressId(geometry, faceIndex) {
+      if (!geometry.index)
+        throw new Error('Geometry does not have index information.');
+      const geoIndex = geometry.index.array;
+      });
+    }
+  
+>   getItemProperties(modelID, elementID, recursive) {
+>     return this.handler.request(this.API, WorkerActions.getItemProperties, {
+        modelID,
+        elementID,
+        recursive
+      });
+    }
+  
+>   async GetGeometry(modelID, geometryExpressID) {
+      this.handler.serializeHandlers[this.handler.requestID] = (geom) => {
+        return this.serializer.reconstructIfcGeometry(geom);
+      };
+      return this.handler.request(this.API, WorkerActions.GetGeometry, {
+        modelID,
+>       geometryExpressID
+      });
+    }
+  
+>   async GetLine(modelID, expressID, flatten) {
+      return this.handler.request(this.API, WorkerActions.GetLine, {
+        modelID,
+>       expressID,
+        flatten
+      });
+    }
+      });
+    }
+  
+>   async GetRawLineData(modelID, expressID) {
+      return this.handler.request(this.API, WorkerActions.GetRawLineData, {
+        modelID,
+>       expressID
+      });
+    }
+  
+      });
+    }
+  
+>   async GetFlatMesh(modelID, expressID) {
+      this.handler.serializeHandlers[this.handler.requestID] = (flatMesh) => {
+        return this.serializer.reconstructFlatMesh(flatMesh);
+      };
+      return this.handler.request(this.API, WorkerActions.GetFlatMesh, {
+        modelID,
+>       expressID
+      });
+    }
+  
+      let workSchedules = await this.utils.byType(modelID, "IfcWorkSchedule");
+      for (let i = 0; i < workSchedules.length; i++) {
+        let workSchedule = workSchedules[i];
+>       this.workSchedules[workSchedule.expressID] = {
+>         "Id": workSchedule.expressID,
+          "Name": workSchedule.Name.value,
+          "Description": ((workSchedule.Description) ? 
+workSchedule.Description.value : ""),
+          "Creators": [],
+        let relatedObjects = relControls.RelatedObjects;
+        if (this.utils.isA(relatingControl, "IfcWorkSchedule")) {
+          for (var objectIndex = 0; objectIndex < relatedObjects.length; 
+objectIndex++) {
+>           this.workSchedules[relatingControl.expressID]["RelatedObjects"].pus
+h(relatedObjects[objectIndex].value);
+          }
+        }
+      }
+      let tasks = await this.utils.byType(modelID, "IfcTask");
+      for (let i = 0; i < tasks.length; i++) {
+        let task = tasks[i];
+>       this.tasks[task.expressID] = {
+>         "Id": task.expressID,
+          "Name": ((task.Name) ? task.Name.value : ""),
+          "PredefinedType": ((task.PredefinedType) ? task.PredefinedType.value 
+: ""),
+          "TaskTime": ((task.TaskTime) ? await this.utils.byId(modelID, 
+task.TaskTime.value) : ""),
+          let relSequence = await this.utils.byId(modelID, relSequenceId);
+          let related_process = relSequence.RelatedProcess.value;
+          let relatingProcess = relSequence.RelatingProcess.value;
+>         
+this.tasks[relatingProcess]["IsPredecessorTo"].push(relSequence.expressID);
+>         
+this.tasks[related_process]["IsSucessorFrom"].push(relSequence.expressID);
+        }
+      }
+    }
+        let relatedObject = await this.utils.byId(modelID, 
+relAssignsToProduct.RelatedObjects[0].value);
+        if (this.utils.isA(relatedObject, "IfcTask")) {
+          let relatingProduct = await this.utils.byId(modelID, 
+relAssignsToProduct.RelatingProduct.value);
+>         
+this.tasks[relatedObject.expressID]["Outputs"].push(relatingProduct.expressID);
+        }
+      }
+    }
+        if (this.utils.isA(relating_object, "IfcTask")) {
+          let relatedObjects = relNests.RelatedObjects;
+          for (var object_index = 0; object_index < relatedObjects.length; 
+object_index++) {
+>           this.tasks[relating_object.expressID]["IsNestedBy"].push(relatedObj
+ects[object_index].value);
+>           this.tasks[relatedObjects[object_index].value]["Nests"].push(relati
+ng_object.expressID);
+          }
+        }
+      }
+        if (this.utils.isA(relatingProcess, "IfcTask")) {
+          let relatedObjects = relAssignToProcess.RelatedObjects;
+          for (var object_index = 0; object_index < relatedObjects.length; 
+object_index++) {
+>           this.tasks[relatingProcess.expressID]["OperatesOn"].push(relatedObj
+ects[object_index].value);
+          }
+        }
+      }
+        if (this.utils.isA(relatingControl, "IfcWorkCalendar")) {
+          let relatedObjects = relAssignsToControl.RelatedObjects;
+          for (var object_index = 0; object_index < relatedObjects.length; 
+object_index++) {
+>           this.tasks[relatedObjects[object_index].value]["HasAssignmentsWorkC
+alendars"].push(relatingControl.expressID);
+          }
+        }
+      }
+      for (let i = 0; i < workCalendars.length; i++) {
+        let workCalendar = workCalendars[i];
+        let workCalenderData = {
+>         "Id": workCalendar.expressID,
+          "Name": ((workCalendar.Name) ? workCalendar.Name.value : ""),
+          "Description": ((workCalendar.Description) ? 
+workCalendar.Description.value : ""),
+          "WorkingTimes": ((workCalendar.WorkingTimes) ? 
+workCalendar.WorkingTimes : []),
+          "ExceptionTimes": ((workCalendar.ExceptionTimes) ? 
+workCalendar.ExceptionTimes : []),
+        };
+>       this.workCalendars[workCalendar.expressID] = workCalenderData;
+      }
+    }
+  
+          "Start": ((workTime.Start) ? new Date(workTime.Start.value) : ""),
+          "Finish": ((workTime.Finish) ? new Date(workTime.Finish.value) : ""),
+        };
+>       this.workTimes[workTime.expressID] = workTimeData;
+      }
+    }
+  
+          "StartTime": ((timePeriod.StartTime) ? new 
+Date(timePeriod.StartTime.value) : ""),
+          "EndTime": ((timePeriod.EndTime) ? new 
+Date(timePeriod.EndTime.value) : ""),
+        };
+>       this.timePeriods[timePeriod.expressID] = workTimeData;
+      }
+    }
+  
+      }
+    }
+  
+>   getExpressId(geometry, faceIndex) {
+>     return this.properties.getExpressId(geometry, faceIndex);
+    }
+  
+    getAllItemsOfType(modelID, type, verbose) {
+      return this.properties.getAllItemsOfType(modelID, type, verbose);
+    }
+  
+>   getItemProperties(modelID, id, recursive = false) {
+>     return this.properties.getItemProperties(modelID, id, recursive);
+    }
+  
+    getPropertySets(modelID, id, recursive = false) {
+      return this.properties.getMaterialsProperties(modelID, id, recursive);
+    }
+  
+>   getIfcType(modelID, id) {
+      const typeID = this.state.models[modelID].types[id];
+      return this.state.api.GetNameFromTypeCode(typeID);
+    }
+      return this.properties.getSpatialStructure(modelID, includeProperties);
+    }
+  
+>   getSubset(modelID, material, customId) {
+>     return this.subsets.getSubset(modelID, material, customId);
+    }
+  
+    removeSubset(modelID, material, customID) {
+
+

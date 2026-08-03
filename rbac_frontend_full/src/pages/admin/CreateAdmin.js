@@ -127,7 +127,7 @@ export default function CreateOrganization() {
 
     setLoading(true);
     try {
-      await API.post("create-admin/", {
+      await API.post("auth/create-admin/", {
         organization_name: form.organization_name,
         username: form.username,
         email: form.email,

@@ -32,15 +32,18 @@ export default function Login() {
 
     try {
       const res = await API.post("auth/login/", {
-        username: form.username,
+        username: form.username.trim(),
         password: form.password,
       });
 
       localStorage.setItem("token", res.data.access);
       localStorage.setItem("refresh", res.data.refresh);
 
-      // Extract role from user object or fallback to top-level
-      const userRole = res.data.user?.role || res.data.role || "";
+      // Contributor accounts (created via "Create Project Contributor") are
+      // stored with role="member" and the real role in sub_role, so sub_role
+      // must take priority over role when picking a landing page.
+      const subRole = res.data.user?.sub_role || "";
+      const userRole = subRole || res.data.user?.role || res.data.role || "";
       const role = userRole.toString().toLowerCase();
 
       localStorage.setItem("role", role);
@@ -52,6 +55,7 @@ export default function Login() {
         project_manager: "/manager",
         project_engineer: "/engineer",
         data_contributor: "/data",
+        site_engineer: "/site-engineer",
       };
 
       if (!roleRoutes[role]) {

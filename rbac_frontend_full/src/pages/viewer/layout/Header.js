@@ -8,6 +8,7 @@ const DASHBOARD_PATHS = {
   project_manager: "/manager",
   project_engineer: "/engineer",
   data_contributor: "/data",
+  site_engineer: "/site-engineer",
   viewer: "/",
 };
 

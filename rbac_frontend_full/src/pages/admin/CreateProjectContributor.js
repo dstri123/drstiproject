@@ -136,11 +136,11 @@ export default function CreateProjectContributor() {
     setLoading(true);
     try {
       await API.post("create-user-assign/", {
-        username: formData.username,
-        email: formData.email,
+        username: formData.username.trim(),
+        email: formData.email.trim(),
         password: formData.password,
-        first_name: formData.first_name,
-        last_name: formData.last_name,
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
         sub_role: formData.sub_role,
       });
 

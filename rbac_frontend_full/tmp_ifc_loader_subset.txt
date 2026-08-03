@@ -1,0 +1,124 @@
+﻿
+      return this.ifcManager.getSpatialStructure(this.modelID);
+    }
+  
+>   getSubset(material) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     return this.ifcManager.getSubset(this.modelID, material);
+    }
+  
+>   removeSubset(material, customID) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+>     this.ifcManager.removeSubset(this.modelID, material, customID);
+    }
+  
+>   createSubset(config) {
+      if (this.ifcManager === null)
+        throw new Error(nullIfcManagerErrorMessage);
+      const modelConfig = {
+        ...config,
+        modelID: this.modelID
+      };
+>     return this.ifcManager.createSubset(modelConfig);
+    }
+  
+  }
+  
+  }
+  
+> class SubsetCreator {
+  
+    constructor(state, items, subsets, BVH) {
+      this.state = state;
+      this.tempIndex = [];
+    }
+  
+>   createSubset(config, subsetID) {
+      if (!this.items.map[config.modelID])
+        this.items.generateGeometryIndexMap(config.modelID);
+      if (!this.subsets[subsetID])
+      this.state = state;
+      this.items = new ItemsMap(state);
+      this.BVH = BVH;
+>     this.subsetCreator = new SubsetCreator(state, this.items, this.subsets, 
+this.BVH);
+    }
+  
+    getAllSubsets() {
+      return this.subsets;
+    }
+  
+>   getSubset(modelID, material, customId) {
+      const subsetID = this.getSubsetID(modelID, material, customId);
+      return this.subsets[subsetID].mesh;
+    }
+  
+>   removeSubset(modelID, material, customID) {
+      const subsetID = this.getSubsetID(modelID, material, customID);
+      const subset = this.subsets[subsetID];
+      if (!subset)
+      delete this.subsets[subsetID];
+    }
+  
+>   createSubset(config) {
+      const subsetID = this.getSubsetID(config.modelID, config.material, 
+config.customID);
+>     return this.subsetCreator.createSubset(config, subsetID);
+    }
+  
+    removeFromSubset(modelID, ids, customID, material) {
+        if (previousIDs.has(id))
+          previousIDs.delete(id);
+      });
+>     return this.createSubset({
+        modelID,
+        removePrevious: true,
+        material,
+      if (!this.subsets[subsetID])
+        return;
+      this.subsets[subsetID].ids.clear();
+>     const subset = this.getSubset(modelID, material, customID);
+      subset.geometry.setIndex([]);
+    }
+  
+    dispose() {
+      this.items.dispose();
+>     this.subsetCreator.dispose();
+      Object.values(this.subsets).forEach(subset => {
+        subset.ids = null;
+        subset.mesh.removeFromParent();
+      return this.properties.getSpatialStructure(modelID, includeProperties);
+    }
+  
+>   getSubset(modelID, material, customId) {
+>     return this.subsets.getSubset(modelID, material, customId);
+    }
+  
+>   removeSubset(modelID, material, customID) {
+>     this.subsets.removeSubset(modelID, material, customID);
+    }
+  
+>   createSubset(config) {
+>     return this.subsets.createSubset(config);
+    }
+  
+    removeFromSubset(modelID, ids, customID, material) {
+>     return this.subsets.removeFromSubset(modelID, ids, customID, material);
+    }
+  
+    clearSubset(modelID, customID, material) {
+>     return this.subsets.clearSubset(modelID, customID, material);
+    }
+  
+    async isA(entity, entity_class) {
+    async dispose() {
+      IFCModel.dispose();
+      await this.cleaner.dispose();
+>     this.subsets.dispose();
+      if (this.worker && this.state.worker.active)
+        await this.worker.terminate();
+      this.state = null;
+
+
