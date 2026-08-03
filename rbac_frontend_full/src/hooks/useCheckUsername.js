@@ -18,7 +18,7 @@ export function useCheckUsername() {
       setChecking(true);
 
       try {
-        const res = await API.post("check-username/", { username });
+        const res = await API.post("auth/check-username/", { username });
         setIsAvailable(res.data.available);
         setMessage(res.data.message);
       } catch (err) {
@@ -64,7 +64,7 @@ export function useCheckEmail() {
       setChecking(true);
 
       try {
-        const res = await API.post("check-email/", { email });
+        const res = await API.post("auth/check-email/", { email });
         setIsAvailable(res.data.available);
         setMessage(res.data.message);
       } catch (err) {

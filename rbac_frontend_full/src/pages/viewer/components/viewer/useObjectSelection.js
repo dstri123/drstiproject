@@ -62,7 +62,25 @@ export default function useObjectSelection(
       if (pickable.length > 0) {
         const selected = pickable[0].object;
 
-        // Walk up to the root group
+        // Avoid selecting the whole IFC model mesh on element clicks. The
+        // IFC hit results are better handled by the dedicated BIM element
+        // picker in usePicking.js.
+        const hasIfcExpressID = (obj) => {
+          let current = obj;
+          while (current) {
+            if (current.geometry?.attributes?.expressID) {
+              return true;
+            }
+            current = current.parent;
+          }
+          return false;
+        };
+
+        if (hasIfcExpressID(selected)) {
+          return;
+        }
+
+        // Prefer the actual clicked mesh/points whenever possible.
         let root = selected;
         while (root.parent && root.parent !== scene) {
           if (root.parent instanceof THREE.Group) {

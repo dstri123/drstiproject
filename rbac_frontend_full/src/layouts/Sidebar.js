@@ -82,6 +82,13 @@ export default function Sidebar({ isOpen, onClose }) {
         icon: <Wrench className="w-5 h-5" />,
       },
     ],
+    site_engineer: [
+      {
+        label: "Dashboard",
+        path: "/site-engineer",
+        icon: <LayoutDashboard className="w-5 h-5" />,
+      },
+    ],
   };
 
   const currentMenu = menuItems[role] || [];

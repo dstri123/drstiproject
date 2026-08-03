@@ -23,14 +23,14 @@ export default function OrganizationManagement() {
   const [search, setSearch] = useState("");
 
   const fetchOrgs = async () => {
-    const res = await API.get("organizations/");
+    const res = await API.get("auth/organizations/");
     setOrgs(res.data);
 
     // Fetch admin counts for each organization
     const counts = {};
     for (const org of res.data) {
       try {
-        const adminsRes = await API.get(`organizations/${org.id}/admins/`);
+        const adminsRes = await API.get(`auth/organizations/${org.id}/admins/`);
         counts[org.id] = adminsRes.data.length || 0;
       } catch (err) {
         counts[org.id] = 0;
@@ -47,7 +47,7 @@ export default function OrganizationManagement() {
     if (!window.confirm("Delete this organization?")) return;
 
     try {
-      await API.delete(`organizations/${id}/`);
+      await API.delete(`auth/organizations/${id}/`);
       success("Organization deleted successfully!");
       fetchOrgs();
     } catch (err) {

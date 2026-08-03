@@ -49,7 +49,7 @@ export default function EditOrganization() {
     const fetchData = async () => {
       try {
         // Fetch organization
-        const orgRes = await API.get("organizations/");
+        const orgRes = await API.get("auth/organizations/");
         const foundOrg = orgRes.data.find((o) => o.id === parseInt(id));
         if (!foundOrg) {
           error("Organization not found");
@@ -60,7 +60,7 @@ export default function EditOrganization() {
         setNewName(foundOrg.organization_name);
 
         // Fetch all admins for this organization
-        const adminsRes = await API.get(`organizations/${id}/admins/`);
+        const adminsRes = await API.get(`auth/organizations/${id}/admins/`);
         setAdmins(adminsRes.data || []);
       } catch (err) {
         error("Failed to load organization");
@@ -80,7 +80,7 @@ export default function EditOrganization() {
 
     setSaving(true);
     try {
-      await API.put(`organizations/${id}/update/`, {
+      await API.put(`auth/organizations/${id}/update/`, {
         organization_name: newName,
       });
       success("Organization updated successfully!");
@@ -118,7 +118,7 @@ export default function EditOrganization() {
 
     setEditSaving(true);
     try {
-      await API.put(`admins/${editingAdmin.id}/`, editForm);
+      await API.put(`auth/admins/${editingAdmin.id}/`, editForm);
       success("Admin updated successfully!");
       // Update the local admin list
       setAdmins(
@@ -153,7 +153,7 @@ export default function EditOrganization() {
     }
 
     try {
-      await API.delete(`admins/${admin.id}/`);
+      await API.delete(`auth/admins/${admin.id}/`);
       success("Admin deleted successfully!");
       setAdmins(admins.filter((a) => a.id !== admin.id));
     } catch (err) {

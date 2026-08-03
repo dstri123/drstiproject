@@ -37,6 +37,12 @@ def as_bool(value):
     return str(value).lower() in ("true", "1", "yes", "on")
 
 
+def user_can_upload_to_project(user, project):
+    if user.role in ("admin", "superadmin"):
+        return True
+    return ProjectUser.objects.filter(project=project, user=user).exists()
+
+
 class CreateProjectUserView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -73,15 +79,16 @@ class CreateProjectUserView(APIView):
 
 
 class CreateUserAssignProjectView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolePermission]
+    allowed_roles = ["admin", "superadmin"]
 
     def post(self, request):
         try:
-            username = request.data.get("username")
-            email = request.data.get("email")
+            username = request.data.get("username", "").strip()
+            email = request.data.get("email", "").strip()
             password = request.data.get("password")
-            first_name = request.data.get("first_name", "")
-            last_name = request.data.get("last_name", "")
+            first_name = request.data.get("first_name", "").strip()
+            last_name = request.data.get("last_name", "").strip()
             sub_role = request.data.get("sub_role")
 
             if not username or not password or not sub_role:
@@ -103,7 +110,9 @@ class CreateUserAssignProjectView(APIView):
                 last_name=last_name
             )
 
-            user.role = "member"
+            # "admin" is a real base role (grants admin permissions); every
+            # other sub_role rides on the generic "member" base role.
+            user.role = "admin" if sub_role == "admin" else "member"
             user.sub_role = sub_role
             user.is_active = True
             user.save()
@@ -302,15 +311,16 @@ class UserListView(APIView):
 
     def get(self, request):
         try:
-            users = User.objects.all().values("id", "username", "email", "first_name", "last_name", "sub_role", "role", "description")
+            users = User.objects.exclude(role="superadmin").values("id", "username", "email", "first_name", "last_name", "sub_role", "role", "description")
             return Response(users)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
 
-# 👤 USER DETAIL (GET/PUT)
+# 👤 USER DETAIL (GET/PUT/DELETE)
 class UserDetailView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, RolePermission]
+    allowed_roles = ["admin", "superadmin"]
 
     def get(self, request, id):
         try:
@@ -354,6 +364,23 @@ class UserDetailView(APIView):
                 "role": user.role,
                 "description": user.description or "",
             })
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+    def delete(self, request, id):
+        try:
+            user = User.objects.get(id=id)
+
+            if user.role == "superadmin":
+                return Response({"error": "Cannot delete a Super Admin"}, status=400)
+
+            if user.id == request.user.id:
+                return Response({"error": "You cannot delete your own account"}, status=400)
+
+            user.delete()
+            return Response({"message": "Contributor deleted successfully"})
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=404)
         except Exception as e:
@@ -486,6 +513,9 @@ class ProjectImageView(APIView):
 
     def post(self, request, project_id):
         project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
         zip_file = request.FILES.get("zip_file")
         upload_date = request.data.get("date")
         requested_batch_name = request.data.get("batch_name")
@@ -585,6 +615,9 @@ class CameraFileView(APIView):
 
     def post(self, request, project_id):
         project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
         batch_name = request.data.get("batch_name")
         if not batch_name:
             return Response({"batch_name": "This field is required."}, status=400)
@@ -661,6 +694,9 @@ class MatrixFileView(APIView):
 
     def post(self, request, project_id):
         project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
         batch_name = request.data.get("batch_name")
         if not batch_name:
             return Response({"batch_name": "This field is required."}, status=400)
@@ -733,6 +769,9 @@ class BIMDataView(APIView):
 
     def post(self, request, project_id):
         project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
         is_latest = as_bool(request.data.get("is_latest"))
 
         serializer = BIMDataSerializer(data=request.data, context={"request": request})
@@ -792,6 +831,9 @@ class PointCloudDataView(APIView):
 
     def post(self, request, project_id):
         project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
         is_latest = as_bool(request.data.get("is_latest"))
 
         serializer = PointCloudDataSerializer(data=request.data, context={"request": request})
