@@ -247,7 +247,7 @@ export default function Sidebar({ isOpen, onClose }) {
           <div className="pt-4 border-t border-gray-200 text-center">
             <p className="text-xs text-gray-600">
               All rights reserved by{" "}
-              <span className="font-semibold text-black">@Distri Lab</span>
+              <span className="font-semibold text-black">@Drsti Lab</span>
             </p>
           </div>
         </div>
