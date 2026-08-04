@@ -39,7 +39,6 @@ export default function Header() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            borderRight: "1px solid #e5e7eb",
             flexShrink: 0,
           }}
         >
@@ -62,7 +61,6 @@ export default function Header() {
           }}
           title="Back to Dashboard"
         >
-          <LayoutDashboard size={14} />
           Dashboard
         </button>
         <div

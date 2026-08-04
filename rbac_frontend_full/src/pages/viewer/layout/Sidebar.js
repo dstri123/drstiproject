@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Eye, EyeOff, Trash2, ArrowLeft } from "lucide-react";
 import ElementMetadata from "../components/metadata/ElementMetadata";
@@ -97,6 +97,28 @@ export default function ContextPanel(props) {
       info("Picking stopped.");
     }
   };
+
+  // NEW — category-wise counts of ONLY the currently overlapping elements.
+  // Looks up each overlapping name's category from bimCategories, then tallies.
+  const overlapByCategory = useMemo(() => {
+    if (!overlapElementNames.length) return [];
+
+    // Build a quick name -> category lookup from bimCategories.
+    const nameToCategory = new Map();
+    Object.entries(bimCategories).forEach(([category, names]) => {
+      names.forEach((n) => nameToCategory.set(n, category));
+    });
+
+    const counts = new Map();
+    overlapElementNames.forEach((name) => {
+      const cat = nameToCategory.get(name) || "Other";
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    });
+
+    return Array.from(counts.entries())
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [overlapElementNames, bimCategories]);
 
   const panels = {
     // ── UPLOAD ────────────────────────────────────────────────────────────────
@@ -286,6 +308,59 @@ export default function ContextPanel(props) {
                 </li>
               ))}
             </ul>
+
+            {/* NEW — category-wise counts of the overlapping elements above */}
+            {overlapByCategory.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <SectionLabel text="Overlap by Category" />
+                <div
+                  style={{
+                    border: "1px solid #E5E7EB",
+                    borderRadius: 6,
+                    overflow: "hidden",
+                    background: "#fff",
+                  }}
+                >
+                  {overlapByCategory.map(({ category, count }, i) => (
+                    <div
+                      key={category}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "6px 9px",
+                        borderBottom:
+                          i < overlapByCategory.length - 1
+                            ? "1px solid #F1F5F9"
+                            : "none",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: "#374151",
+                        }}
+                      >
+                        {category}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#16A34A",
+                          background: "#F0FDF4",
+                          borderRadius: 999,
+                          padding: "1px 8px",
+                        }}
+                      >
+                        {count}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
 
