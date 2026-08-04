@@ -10,7 +10,6 @@ import {
   Table2,
   Download,
   Settings,
-  LayoutDashboard,
   BarChart2,
   Boxes,
 } from "lucide-react";
@@ -26,14 +25,6 @@ const TOOLS = [
   { id: "settings", icon: Settings, label: "Settings" },
 ];
 
-const DASHBOARD_PATHS = {
-  superadmin: "/superadmin",
-  admin: "/admin",
-  project_manager: "/manager",
-  project_engineer: "/engineer",
-  data_contributor: "/data",
-};
-
 export default function IconToolbar({ activePanel, onSelectPanel, role }) {
   const [hovered, setHovered] = useState(null);
   const navigate = useNavigate();
@@ -48,15 +39,7 @@ export default function IconToolbar({ activePanel, onSelectPanel, role }) {
   const isProgress = location.pathname.startsWith("/progress");
   const items = TOOLS.filter((t) => !t.adminOnly || !isViewer);
 
-  const dashboardPath = DASHBOARD_PATHS[role] || "/";
-
   const NAV_ITEMS = [
-    {
-      id: "dashboard",
-      icon: LayoutDashboard,
-      label: "Dashboard",
-      path: dashboardPath,
-    },
     { id: "analytics", icon: BarChart2, label: "Analytics" },
     { id: "progress", icon: Boxes, label: "Progress Assessment" },
   ];
@@ -193,17 +176,6 @@ export default function IconToolbar({ activePanel, onSelectPanel, role }) {
       }}
     >
       {items.map((item) => renderButton({ ...item, isNav: false }))}
-
-      <div
-        style={{
-          width: 24,
-          height: 1,
-          background: "#e5e7eb",
-          margin: "6px 0",
-          flexShrink: 0,
-        }}
-      />
-
       {NAV_ITEMS.map((item) =>
         renderButton({ ...item, isNav: true, navItem: item }),
       )}
