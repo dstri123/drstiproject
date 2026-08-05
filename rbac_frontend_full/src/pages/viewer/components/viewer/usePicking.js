@@ -324,6 +324,14 @@ export default function usePicking(sceneData, modelData, props) {
             "XYZ",
           );
 
+          const expressOverlapCount =
+            expressID != null
+              ? window.__overlapCountsByExpressID?.get(expressID)
+              : undefined;
+          const meshOverlapCount = window.__overlapCountsByUuid?.get(
+            selectedMesh.uuid,
+          );
+
           onElementSelect?.({
             name: selectedMesh.name || "Unnamed",
             type: elementType,
@@ -332,7 +340,9 @@ export default function usePicking(sceneData, modelData, props) {
             scale: worldScale.toArray(),
             visible: selectedMesh.visible,
             overlappingPoints:
-              window.__overlapCountsByUuid?.get(selectedMesh.uuid) ?? 0,
+              expressOverlapCount != null
+                ? expressOverlapCount
+                : meshOverlapCount ?? 0,
           });
         }
 

@@ -98,12 +98,61 @@ const CATEGORY_KEYWORDS = [
   { category: "Furniture", keywords: ["furniture", "furnishing"] },
 ];
 
+const IFC_TYPE_CATEGORY_MAP = {
+  IFCWALL: "Walls",
+  IFCWALLSTANDARDCASE: "Walls",
+  IFCSLAB: "Floors / Slabs",
+  IFCROOF: "Roofs",
+  IFCCOLUMN: "Columns",
+  IFCBEAM: "Beams / Framing",
+  IFCSTAIR: "Stairs / Railings",
+  IFCSTAIRFLIGHT: "Stairs / Railings",
+  IFCDOOR: "Doors",
+  IFCWINDOW: "Windows",
+  IFCRAILING: "Stairs / Railings",
+  IFCCOVERING: "Floors / Slabs",
+  IFCPLATE: "Floors / Slabs",
+  IFCFOOTING: "Foundations",
+  IFCPILE: "Foundations",
+};
+
 function categorizeElementName(name) {
   const n = (name || "").toLowerCase();
   for (const { category, keywords } of CATEGORY_KEYWORDS) {
     if (keywords.some((k) => n.includes(k))) return category;
   }
   return "Other";
+}
+
+function categorizeIfcType(ifcType) {
+  if (!ifcType) return "Other";
+  const normalized = ifcType.toUpperCase();
+  return IFC_TYPE_CATEGORY_MAP[normalized] || categorizeElementName(normalized);
+}
+
+function collectIfcExpressIds(object) {
+  const ids = new Set();
+  object.traverse((child) => {
+    if (!child.isMesh) return;
+    const geometry = child.geometry;
+    const expressIDAttr = geometry?.attributes?.expressID;
+    if (!expressIDAttr) return;
+
+    const indexArray = geometry.index?.array;
+    if (indexArray) {
+      for (let i = 0; i < indexArray.length; i += 1) {
+        const id = expressIDAttr.array[indexArray[i]];
+        if (id != null) ids.add(id);
+      }
+      return;
+    }
+
+    for (let i = 0; i < expressIDAttr.array.length; i += 1) {
+      const id = expressIDAttr.array[i];
+      if (id != null) ids.add(id);
+    }
+  });
+  return Array.from(ids);
 }
 // Pick a material colour for a BIM mesh: keep the colour authored in the FBX
 // when it is meaningful, otherwise fall back to the palette by element name.
@@ -666,12 +715,26 @@ export default function useModelLoader(sceneData, props) {
       let meshCount = 0;
       const categoryMap = new Map(); // NEW — category -> [names]
       const categoryCounts = {};
-      object.traverse((child) => {
-        if (child.isMesh) {
-          meshCount++;
+      const isIfcModel = typeof object.getIfcType === "function";
+      const expressIDs = isIfcModel ? collectIfcExpressIds(object) : null;
 
-          // NEW — resolve a display name the same way useOverlap does, then
-          // bucket it into a category by keyword match.
+      if (expressIDs?.length) {
+        meshCount = expressIDs.length;
+        for (const expressID of expressIDs) {
+          const ifcType = object.getIfcType(expressID);
+          const category = categorizeIfcType(ifcType);
+          const elementName = `${ifcType || "IFC"} #${expressID}`;
+          categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+          if (!categoryMap.has(category)) categoryMap.set(category, []);
+          categoryMap.get(category).push(elementName);
+        }
+      }
+
+      object.traverse((child) => {
+        if (!child.isMesh) return;
+
+        if (!expressIDs?.length) {
+          meshCount++;
           const elementName =
             (typeof child.name === "string" && child.name.trim()) ||
             (typeof child.parent?.name === "string" &&
@@ -681,44 +744,44 @@ export default function useModelLoader(sceneData, props) {
           categoryCounts[category] = (categoryCounts[category] || 0) + 1;
           if (!categoryMap.has(category)) categoryMap.set(category, []);
           categoryMap.get(category).push(elementName);
+        }
 
-          const hasVertexColors = Boolean(child.geometry?.attributes?.color);
-          const makeMat = (color) =>
-            new THREE.MeshStandardMaterial({
-              color: hasVertexColors ? 0xffffff : color,
-              vertexColors: hasVertexColors,
-              roughness: 0.8,
-              metalness: 0.05,
-              side: THREE.DoubleSide, // IFC faces are often inverted
-            });
-          // A merged web-ifc IFCModel keeps one material per original IFC
-          // surface style across its geometry groups — preserve that array
-          // instead of collapsing it to a single flat colour.
-          child.material = Array.isArray(child.material)
-            ? child.material.map((mat, i) => makeMat(bimColorFor(child, mat, i)))
-            : makeMat(bimColorFor(child));
+        const hasVertexColors = Boolean(child.geometry?.attributes?.color);
+        const makeMat = (color) =>
+          new THREE.MeshStandardMaterial({
+            color: hasVertexColors ? 0xffffff : color,
+            vertexColors: hasVertexColors,
+            roughness: 0.8,
+            metalness: 0.05,
+            side: THREE.DoubleSide, // IFC faces are often inverted
+          });
+        // A merged web-ifc IFCModel keeps one material per original IFC
+        // surface style across its geometry groups — preserve that array
+        // instead of collapsing it to a single flat colour.
+        child.material = Array.isArray(child.material)
+          ? child.material.map((mat, i) => makeMat(bimColorFor(child, mat, i)))
+          : makeMat(bimColorFor(child));
 
-          // Thin dark edge lines give the clean "technical drawing" look
-          // (like IFCtoFDS) without removing the per-element colors that
-          // picking/segmentation rely on. The 30° threshold keeps only real
-          // creases so curved surfaces don't turn into a mess of lines.
-          try {
-            const edgesGeom = new THREE.EdgesGeometry(child.geometry, 30);
-            const edgeLines = new THREE.LineSegments(
-              edgesGeom,
-              new THREE.LineBasicMaterial({
-                color: 0x334155,
-                transparent: true,
-                opacity: 0.35,
-              }),
-            );
-            edgeLines.name = "__bim_edges";
-            // Don't let edge lines intercept clicks meant for the surface.
-            edgeLines.raycast = () => {};
-            child.add(edgeLines);
-          } catch (e) {
-            // ignore edge build failures on degenerate geometry
-          }
+        // Thin dark edge lines give the clean "technical drawing" look
+        // (like IFCtoFDS) without removing the per-element colors that
+        // picking/segmentation rely on. The 30° threshold keeps only real
+        // creases so curved surfaces don't turn into a mess of lines.
+        try {
+          const edgesGeom = new THREE.EdgesGeometry(child.geometry, 30);
+          const edgeLines = new THREE.LineSegments(
+            edgesGeom,
+            new THREE.LineBasicMaterial({
+              color: 0x334155,
+              transparent: true,
+              opacity: 0.35,
+            }),
+          );
+          edgeLines.name = "__bim_edges";
+          // Don't let edge lines intercept clicks meant for the surface.
+          edgeLines.raycast = () => {};
+          child.add(edgeLines);
+        } catch (e) {
+          // ignore edge build failures on degenerate geometry
         }
       });
       setBimElementCount?.(meshCount);
