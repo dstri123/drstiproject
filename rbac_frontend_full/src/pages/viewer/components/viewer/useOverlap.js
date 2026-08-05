@@ -33,13 +33,23 @@ export default function useOverlap(sceneData, modelData, props) {
     occupied: null,
     voxelToElems: null,
     elemNames: null, // NEW
+    elemUuids: null, // NEW
+    elemIds: null, // NEW — expressID or mesh index
+    isIfc: false, // NEW
   });
   const lastSigRef = useRef("");
 
   // Build (or reuse) the BIM surface voxel hash.
   const getBimVoxels = useCallback(() => {
     if (!bimModel)
-      return { occupied: new Set(), voxelToElems: new Map(), elemNames: [] }; // CHANGED
+      return {
+        occupied: new Set(),
+        voxelToElems: new Map(),
+        elemNames: [],
+        elemUuids: [],
+        elemIds: [],
+        isIfc: false,
+      };
     bimModel.updateMatrixWorld(true);
     const sig = matrixSig(bimModel);
     if (bimCacheRef.current.sig === sig && bimCacheRef.current.occupied) {
@@ -47,42 +57,90 @@ export default function useOverlap(sceneData, modelData, props) {
     }
     const occupied = new Set();
     const voxelToElems = new Map();
-    const elemNames = []; // index -> display name
-    const elemUuids = []; // NEW — index -> mesh.uuid
-    const v = new THREE.Vector3();
+    const elemNames = [];
+    const elemUuids = [];
+    const elemIds = [];
+    const elemExpressIdToIndex = new Map();
     let elemIndex = 0;
+    let isIfc = false;
+    const v = new THREE.Vector3();
+
     bimModel.traverse((c) => {
       if (!c.isMesh || !c.geometry?.attributes?.position) return;
-      const idx = elemIndex++;
-      const cName = typeof c.name === "string" ? c.name.trim() : "";
-      const parentName =
-        typeof c.parent?.name === "string" ? c.parent.name.trim() : "";
-      const userDataName =
-        typeof c.userData?.elementName === "string"
-          ? c.userData.elementName.trim()
-          : "";
-      elemNames[idx] =
-        cName || parentName || userDataName || `Element ${idx + 1}`;
-      elemUuids[idx] = c.uuid; // NEW
-      const pos = c.geometry.attributes.position;
-      // ...rest unchanged...
+      const geom = c.geometry;
+      const expressIDAttr = geom.attributes?.expressID;
+      const indexArray = geom.index?.array;
+      const pos = geom.attributes.position;
+
+      if (expressIDAttr) {
+        isIfc = true;
+      }
+
       c.updateMatrixWorld(true);
       const m = c.matrixWorld;
-      // Stride huge meshes so building stays bounded.
       const stride = Math.max(1, Math.floor(pos.count / 150000));
-      for (let i = 0; i < pos.count; i += stride) {
-        v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(m);
+
+      for (let vi = 0; vi < pos.count; vi += stride) {
+        const vertexIndex = indexArray ? indexArray[vi] : vi;
+        v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m);
         const key = cellKey(v);
         occupied.add(key);
+
+        let elemIdx = null;
+        if (expressIDAttr) {
+          const expressID = expressIDAttr.array[vertexIndex];
+          if (expressID == null) continue;
+          elemIdx = elemExpressIdToIndex.get(expressID);
+          if (elemIdx == null) {
+            elemIdx = elemIndex++;
+            elemExpressIdToIndex.set(expressID, elemIdx);
+            const ifcType =
+              typeof c.getIfcType === "function"
+                ? c.getIfcType(expressID)
+                : null;
+            elemNames[elemIdx] =
+              (ifcType ? `${ifcType} #${expressID}` : `IFC #${expressID}`) ||
+              `Element ${elemIdx + 1}`;
+            elemIds[elemIdx] = expressID;
+            elemUuids[elemIdx] = c.uuid;
+          }
+        } else {
+          if (typeof c.userData?.elementIndex === "number") {
+            elemIdx = c.userData.elementIndex;
+          } else {
+            elemIdx = elemIndex++;
+            const cName = typeof c.name === "string" ? c.name.trim() : "";
+            const parentName =
+              typeof c.parent?.name === "string" ? c.parent.name.trim() : "";
+            const userDataName =
+              typeof c.userData?.elementName === "string"
+                ? c.userData.elementName.trim()
+                : "";
+            elemNames[elemIdx] =
+              cName || parentName || userDataName || `Element ${elemIdx + 1}`;
+            elemIds[elemIdx] = null;
+            elemUuids[elemIdx] = c.uuid;
+          }
+        }
+
         let arr = voxelToElems.get(key);
         if (!arr) {
           arr = [];
           voxelToElems.set(key, arr);
         }
-        if (arr[arr.length - 1] !== idx) arr.push(idx);
+        if (arr[arr.length - 1] !== elemIdx) arr.push(elemIdx);
       }
     });
-    bimCacheRef.current = { sig, occupied, voxelToElems, elemNames, elemUuids }; // CHANGED
+
+    bimCacheRef.current = {
+      sig,
+      occupied,
+      voxelToElems,
+      elemNames,
+      elemUuids,
+      elemIds,
+      isIfc,
+    };
     return bimCacheRef.current;
   }, [bimModel]);
 
@@ -99,7 +157,14 @@ export default function useOverlap(sceneData, modelData, props) {
     // Start from the original colours so re-runs don't accumulate green.
     colAttr.array.set(geom.userData.originalColors);
 
-    const { occupied, voxelToElems, elemNames, elemUuids } = getBimVoxels(); // CHANGED
+    const {
+      occupied,
+      voxelToElems,
+      elemNames,
+      elemUuids,
+      elemIds,
+      isIfc,
+    } = getBimVoxels();
     pcModel.updateMatrixWorld(true);
     const m = pcModel.matrixWorld;
     const v = new THREE.Vector3();
@@ -116,7 +181,7 @@ export default function useOverlap(sceneData, modelData, props) {
         if (elems) {
           for (let e = 0; e < elems.length; e++) {
             hitElems.add(elems[e]);
-            hitCounts.set(elems[e], (hitCounts.get(elems[e]) || 0) + 1); // NEW
+            hitCounts.set(elems[e], (hitCounts.get(elems[e]) || 0) + 1);
           }
         }
       }
@@ -130,15 +195,17 @@ export default function useOverlap(sceneData, modelData, props) {
         .sort((a, b) => a.localeCompare(b)),
     );
 
-    // NEW — publish per-mesh counts keyed by uuid, so usePicking's click
-    // handler can look up "how many overlap points does THIS mesh have"
-    // without needing a direct dependency between the two hooks.
     const countsByUuid = new Map();
+    const countsByExpressID = new Map();
     hitCounts.forEach((cnt, idx) => {
       const uuid = elemUuids?.[idx];
       if (uuid) countsByUuid.set(uuid, cnt);
+      if (isIfc && elemIds?.[idx] != null) {
+        countsByExpressID.set(elemIds[idx], cnt);
+      }
     });
     window.__overlapCountsByUuid = countsByUuid;
+    window.__overlapCountsByExpressID = countsByExpressID;
 
     lastSigRef.current = matrixSig(bimModel) + "|" + matrixSig(pcModel);
   }, [
