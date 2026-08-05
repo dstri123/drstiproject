@@ -119,6 +119,7 @@ export default function Sidebar({ isOpen, onClose }) {
         first_name: event.detail?.first_name || prev.first_name,
         last_name: event.detail?.last_name || prev.last_name,
         bio: event.detail?.bio || prev.bio,
+        avatar_url: event.detail?.avatar_url || prev.avatar_url,
       }));
     };
 
@@ -205,9 +206,17 @@ export default function Sidebar({ isOpen, onClose }) {
           {/* Profile Card */}
           <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mb-4">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-black to-gray-800 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                {initials}
-              </div>
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt="Profile avatar"
+                  className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-black to-gray-800 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {initials}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-black truncate">
                   {fullName}

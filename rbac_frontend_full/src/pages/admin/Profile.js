@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Zap } from "lucide-react";
+import { Eye, EyeOff, CheckCircle2, AlertCircle, Loader2, Zap, Camera } from "lucide-react";
 import API from "../../api/axios";
 import Topbar from "../../layouts/Topbar";
 import { useToast } from "../../components/ToastContainer";
 import { generateStrongPassword } from "../../utils/passwordGenerator";
+
+const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5MB
 
 const initialForm = {
   username: "",
@@ -16,6 +18,7 @@ const initialForm = {
   bio: "",
   password: "",
   confirmPassword: "",
+  avatar_url: "",
 };
 
 export default function AdminProfile() {
@@ -28,6 +31,9 @@ export default function AdminProfile() {
   const [errors, setErrors] = useState({});
   const [successMessage, setSuccessMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -56,6 +62,7 @@ export default function AdminProfile() {
           bio: res.data?.bio || "",
           password: "",
           confirmPassword: "",
+          avatar_url: res.data?.avatar_url || "",
         }));
       } catch (err) {
         setErrors({
@@ -74,6 +81,27 @@ export default function AdminProfile() {
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }));
     }
+  };
+
+  const handleAvatarChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      error("Please upload a valid image file.");
+      e.target.value = "";
+      return;
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      error("Image must be smaller than 5MB.");
+      e.target.value = "";
+      return;
+    }
+
+    setAvatarFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setAvatarPreview(reader.result);
+    reader.readAsDataURL(file);
   };
 
   const generatePassword = () => {
@@ -126,22 +154,31 @@ export default function AdminProfile() {
 
     setSaving(true);
     try {
-      const res = await API.put("profile/update/", {
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        bio: form.bio.trim(),
-        password: form.password || "",
+      const formData = new FormData();
+      formData.append("first_name", form.first_name.trim());
+      formData.append("last_name", form.last_name.trim());
+      formData.append("bio", form.bio.trim());
+      formData.append("password", form.password || "");
+      if (avatarFile) {
+        formData.append("avatar", avatarFile);
+      }
+
+      const res = await API.put("profile/update/", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       if (res.data?.access) {
         localStorage.setItem("token", res.data.access);
       }
 
+      const newAvatarUrl = res.data?.avatar_url || form.avatar_url;
+
       // Update localStorage with new profile data and trigger sidebar refresh
       localStorage.setItem("profileUpdated", JSON.stringify({
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
         bio: form.bio.trim(),
+        avatar_url: newAvatarUrl,
         timestamp: new Date().getTime(),
       }));
 
@@ -151,6 +188,7 @@ export default function AdminProfile() {
           first_name: form.first_name.trim(),
           last_name: form.last_name.trim(),
           bio: form.bio.trim(),
+          avatar_url: newAvatarUrl,
         }
       }));
 
@@ -158,7 +196,10 @@ export default function AdminProfile() {
         ...prev,
         password: "",
         confirmPassword: "",
+        avatar_url: newAvatarUrl,
       }));
+      setAvatarFile(null);
+      setAvatarPreview("");
 
       success("Profile updated successfully!");
       setSuccessMessage("");
@@ -206,8 +247,33 @@ export default function AdminProfile() {
                   Profile Avatar
                 </h2>
                 <div className="space-y-4">
-                  <div className="w-full min-h-80 rounded-lg bg-gradient-to-br from-black to-gray-800 flex items-center justify-center text-9xl font-bold text-white shadow-lg">
-                    {initials}
+                  <div className="relative w-full min-h-80 rounded-lg overflow-hidden shadow-lg">
+                    {avatarPreview || form.avatar_url ? (
+                      <img
+                        src={avatarPreview || form.avatar_url}
+                        alt="Profile avatar"
+                        className="w-full h-80 object-cover"
+                      />
+                    ) : (
+                      <div className="w-full min-h-80 bg-gradient-to-br from-black to-gray-800 flex items-center justify-center text-9xl font-bold text-white">
+                        {initials}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-md bg-white/95 px-3 py-1.5 text-xs font-semibold text-black shadow-md hover:bg-white transition-colors"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      Change photo
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                    />
                   </div>
                   <div className="text-center">
                     <p className="text-sm text-gray-600 font-medium">
@@ -216,6 +282,11 @@ export default function AdminProfile() {
                     <p className="text-xs text-gray-500">
                       @{form.username}
                     </p>
+                    {avatarFile && (
+                      <p className="text-xs text-gray-700 mt-1">
+                        New photo selected — click "Save Changes" to apply.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
