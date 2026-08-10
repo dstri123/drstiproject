@@ -820,7 +820,7 @@ class ProgressAnalyzeView(APIView):
 
     def post(self, request):
         from projects.models import BIMData, PointCloudData
-        from .progress import analyze
+        from .progress import analyze, sanitize_result
 
         bim_id = request.data.get("bim_id")
         pc_id = request.data.get("pointcloud_id")
@@ -859,6 +859,23 @@ class ProgressAnalyzeView(APIView):
         try:
             result = analyze(bim_path, pc_path, bim.transform, pc.transform,
                              threshold=threshold)
+            # Ensure all numeric types are native Python types for JSON.
+            result = sanitize_result(result)
+
+            # If the analysis found no points or no overlap, add an explanatory warning
+            point_count = int(result.get("point_count") or 0)
+            try:
+                overall = float(result.get("summary", {}).get("overall_completion") or 0.0)
+            except Exception:
+                overall = 0.0
+            if point_count == 0:
+                warnings.append(
+                    "Point cloud appears empty or could not be read — check file format and server-side file path."
+                )
+            elif overall == 0.0 and not warnings:
+                warnings.append(
+                    "No overlap detected between BIM and point cloud. Ensure both models are aligned and saved in the viewer, and try a larger threshold."
+                )
         except Exception as e:
             import traceback
             traceback.print_exc()

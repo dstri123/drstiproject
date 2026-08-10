@@ -1016,12 +1016,14 @@ function ThreeViewer({
       isSemanticActive: samData.isSemanticActive,
       isSamRunning: samData.isRunning,
       samProgress: samData.progress,
+      semanticSummary: samData.semanticSummary,
     });
   }, [
     samData.toggleSemanticSegmentation,
     samData.isSemanticActive,
     samData.isRunning,
     samData.progress,
+    samData.semanticSummary,
     onModelDataChange,
   ]);
 

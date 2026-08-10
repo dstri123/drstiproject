@@ -16,6 +16,7 @@ Run:
 import base64
 import io
 import os
+import urllib.request
 from typing import Optional
 
 import numpy as np
@@ -26,6 +27,9 @@ from PIL import Image
 from pydantic import BaseModel
 
 SAM_CHECKPOINT_PATH = os.environ.get("SAM_CHECKPOINT_PATH", "sam_vit_b_01ec64.pth")
+SAM_CHECKPOINT_URL = (
+    "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
+)
 SAM_MODEL_TYPE = "vit_b"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -36,21 +40,21 @@ MAX_IMAGE_EDGE = 384
 # Must mirror CONSTRUCTION_CLASSES in useConstructionSegmentation.js —
 # same key/id/color per class, so front-end and back-end never disagree.
 CONSTRUCTION_CLASSES = [
-    {"key": "sky", "id": 0, "label": "Sky", "color": [135, 206, 235], "emoji": "🌤",
+    {"key": "sky", "id": 0, "label": "Sky", "color": [135, 206, 235], "emoji": ":mostly_sunny:",
      "prompts": ["a photo of the sky", "clouds"]},
-    {"key": "ground", "id": 1, "label": "Ground / Soil / Mud", "color": [101, 67, 33], "emoji": "🟫",
+    {"key": "ground", "id": 1, "label": "Ground / Soil / Mud", "color": [101, 67, 33], "emoji": ":large_brown_square:",
      "prompts": ["bare ground", "soil", "mud", "dirt at a construction site"]},
-    {"key": "concrete", "id": 2, "label": "Concrete / Cement", "color": [169, 169, 169], "emoji": "🪨",
+    {"key": "concrete", "id": 2, "label": "Concrete / Cement", "color": [169, 169, 169], "emoji": ":rock:",
      "prompts": ["poured concrete", "a cement surface", "a concrete slab"]},
-    {"key": "structure", "id": 3, "label": "Structure / Walls", "color": [70, 100, 160], "emoji": "🏗",
+    {"key": "structure", "id": 3, "label": "Structure / Walls", "color": [70, 100, 160], "emoji": ":building_construction:",
      "prompts": ["a building wall", "a structural frame", "a brick or block wall"]},
-    {"key": "scaffolding", "id": 4, "label": "Scaffolding / Steel", "color": [220, 120, 30], "emoji": "🔩",
+    {"key": "scaffolding", "id": 4, "label": "Scaffolding / Steel", "color": [220, 120, 30], "emoji": ":nut_and_bolt:",
      "prompts": ["construction scaffolding", "steel scaffold poles"]},
-    {"key": "rebar", "id": 5, "label": "Rebar / Metal Rods", "color": [160, 60, 20], "emoji": "📏",
+    {"key": "rebar", "id": 5, "label": "Rebar / Metal Rods", "color": [160, 60, 20], "emoji": ":straight_ruler:",
      "prompts": ["steel rebar", "metal reinforcement rods"]},
-    {"key": "equipment", "id": 6, "label": "Equipment / Machinery", "color": [230, 190, 0], "emoji": "🚧",
+    {"key": "equipment", "id": 6, "label": "Equipment / Machinery", "color": [230, 190, 0], "emoji": ":construction:",
      "prompts": ["heavy construction machinery", "a crane or excavator"]},
-    {"key": "worker", "id": 7, "label": "Worker / Person", "color": [210, 40, 40], "emoji": "👷",
+    {"key": "worker", "id": 7, "label": "Worker / Person", "color": [210, 40, 40], "emoji": ":construction_worker:",
      "prompts": ["a construction worker", "a person wearing a hard hat"]},
 ]
 
@@ -61,17 +65,26 @@ _clip_preprocess = None
 _clip_text_features = None
 
 
+def _ensure_checkpoint_available():
+    if os.path.exists(SAM_CHECKPOINT_PATH):
+        return
+
+    try:
+        urllib.request.urlretrieve(SAM_CHECKPOINT_URL, SAM_CHECKPOINT_PATH)
+    except Exception as exc:
+        raise RuntimeError(
+            f"SAM checkpoint not found at '{SAM_CHECKPOINT_PATH}' and auto-download failed: {exc}. "
+            f"Download it from {SAM_CHECKPOINT_URL}, place it next to segmentation_service.py, "
+            f"or set SAM_CHECKPOINT_PATH."
+        ) from exc
+
+
 def _ensure_models_loaded():
     global _sam_generator, _clip_model, _clip_preprocess, _clip_text_features
     if _sam_generator is not None:
         return
 
-    if not os.path.exists(SAM_CHECKPOINT_PATH):
-        raise RuntimeError(
-            f"SAM checkpoint not found at '{SAM_CHECKPOINT_PATH}'. Download it from "
-            "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth "
-            "and place it next to segmentation_service.py, or set SAM_CHECKPOINT_PATH."
-        )
+    _ensure_checkpoint_available()
 
     from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 
@@ -224,7 +237,23 @@ class Base64Request(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "device": DEVICE}
+    try:
+        _ensure_checkpoint_available()
+        _ensure_models_loaded()
+        return {
+            "status": "ok",
+            "device": DEVICE,
+            "model_ready": True,
+            "checkpoint": SAM_CHECKPOINT_PATH,
+        }
+    except RuntimeError as exc:
+        return {
+            "status": "degraded",
+            "device": DEVICE,
+            "model_ready": False,
+            "checkpoint": SAM_CHECKPOINT_PATH,
+            "error": str(exc),
+        }
 
 
 @app.post("/segment")
