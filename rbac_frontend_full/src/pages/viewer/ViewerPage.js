@@ -248,10 +248,9 @@ export default function ViewerPage() {
 
       if (cameraItem?.file) {
         try {
-          const camResponse = await API.get(
-            resolveRemoteUrl(cameraItem.file),
-            { responseType: "blob" },
-          );
+          const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
+responseType: "blob",
+});
           setCameraPositionsFile(camResponse.data);
           // Derive a display name from the server URL
           const rawName = cameraItem.file.split("?")[0].split("/").pop();
@@ -287,8 +286,10 @@ export default function ViewerPage() {
         setUploadedAlignmentMatrix(null);
       } else {
         try {
-          const matResp = await fetchWithRetry(resolveRemoteUrl(matrixItem.file));
-          const matJson = await matResp.json();
+const matResp = await fetchWithRetry(
+resolveRemoteUrl(matrixItem.file),
+); 
+         const matJson = await matResp.json();
           const isValid4x4 =
             Array.isArray(matJson) &&
             matJson.length === 4 &&
@@ -533,6 +534,7 @@ export default function ViewerPage() {
   const [isSemanticActive, setIsSemanticActive] = useState(false);
   const [isSamRunning, setIsSamRunning] = useState(false);
   const [samProgress, setSamProgress] = useState(null);
+  const [semanticSummary, setSemanticSummary] = useState(null);
   const handleModelDataChange = useCallback(
     ({
       // ── segmentation ──
@@ -544,6 +546,7 @@ export default function ViewerPage() {
       isSemanticActive,
       isSamRunning,
       samProgress,
+      semanticSummary,
     }) => {
       setToggleSegmentation(() => toggleSegmentation);
       setIsSegmented(isSegmented);
@@ -553,6 +556,8 @@ export default function ViewerPage() {
       setIsSemanticActive(isSemanticActive);
       setIsSamRunning(isSamRunning);
       setSamProgress(samProgress);
+      setSemanticSummary(semanticSummary || null);
+
     },
     [],
   );

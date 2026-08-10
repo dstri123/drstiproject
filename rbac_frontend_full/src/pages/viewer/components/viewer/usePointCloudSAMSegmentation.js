@@ -1,146 +1,148 @@
 import { useCallback, useRef, useState } from "react";
 import * as THREE from "three";
-import {
-  useConstructionSegmentation,
-  CONSTRUCTION_CLASSES,
-} from "./useConstructionSegmentation";
+
+const POINT_CLOUD_SEMANTIC_CLASSES = {
+  ground: { id: 0, label: "Ground", color: [101, 67, 33], emoji: ":large_brown_square:" },
+  slab: { id: 1, label: "Slab", color: [169, 169, 169], emoji: ":rock:" },
+  wall: { id: 2, label: "Wall", color: [70, 100, 160], emoji: ":building_construction:" },
+  column: { id: 3, label: "Column", color: [220, 120, 30], emoji: ":bricks:" },
+  beam: { id: 4, label: "Beam", color: [230, 190, 0], emoji: ":triangular_ruler:" },
+  scaffolding: {
+    id: 5,
+    label: "Scaffolding",
+    color: [160, 60, 20],
+    emoji: ":nut_and_bolt:",
+  },
+  equipment: {
+    id: 6,
+    label: "Equipment / Machinery",
+    color: [210, 40, 40],
+    emoji: ":construction:",
+  },
+  concrete: {
+    id: 7,
+    label: "Concrete / Cement",
+    color: [135, 206, 235],
+    emoji: ":bricks:",
+  },
+};
+
+function buildSemanticColorMap(geometry) {
+  const posAttr = geometry.attributes.position;
+  const total = posAttr.count;
+  const box = new THREE.Box3().setFromBufferAttribute(posAttr);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  const verticalAxis =
+    size.y >= size.z && size.y >= size.x ? "y" : size.z >= size.x ? "z" : "x";
+  const verticalIndex = verticalAxis === "y" ? 1 : verticalAxis === "z" ? 2 : 0;
+  const verticalMin = box.min[verticalAxis];
+  const verticalMax = box.max[verticalAxis];
+  const verticalSpan = Math.max(verticalMax - verticalMin, 1e-6);
+  const maxFootprint = Math.max(size.x, size.z, 1e-6);
+  const counts = Object.fromEntries(
+    Object.keys(POINT_CLOUD_SEMANTIC_CLASSES).map((k) => [k, 0]),
+  );
+
+  const colorArr = new Uint8Array(total * 3);
+
+  for (let i = 0; i < total; i++) {
+    const x = posAttr.getX(i);
+    const y = posAttr.getY(i);
+    const z = posAttr.getZ(i);
+    const v = posAttr.getComponent(i, verticalIndex);
+    const vNorm = (v - verticalMin) / verticalSpan;
+
+    const dx = x - center.x;
+    const dz = z - center.z;
+    const footprint = Math.max(Math.abs(dx), Math.abs(dz));
+    const xSpread = Math.abs(dx) / Math.max(size.x, 1e-6);
+    const zSpread = Math.abs(dz) / Math.max(size.z, 1e-6);
+
+    let key = "concrete";
+
+    if (vNorm < 0.12) {
+      key = "ground";
+    } else if (
+      vNorm >= 0.18 &&
+      vNorm <= 0.38 &&
+      footprint < maxFootprint * 0.35
+    ) {
+      key = "slab";
+    } else if (
+      vNorm >= 0.25 &&
+      vNorm <= 0.72 &&
+      Math.min(xSpread, zSpread) < 0.12
+    ) {
+      key = "wall";
+    } else if (vNorm >= 0.45 && footprint < maxFootprint * 0.18) {
+      key = "column";
+    } else if (
+      vNorm >= 0.22 &&
+      vNorm <= 0.72 &&
+      Math.max(xSpread, zSpread) > 0.35
+    ) {
+      key = "beam";
+    } else if (vNorm >= 0.35 && Math.min(xSpread, zSpread) < 0.08) {
+      key = "scaffolding";
+    } else if (vNorm > 0.75) {
+      key = "equipment";
+    }
+
+    counts[key] += 1;
+    const [r, g, b] = POINT_CLOUD_SEMANTIC_CLASSES[key].color;
+    colorArr[i * 3] = r;
+    colorArr[i * 3 + 1] = g;
+    colorArr[i * 3 + 2] = b;
+  }
+
+  return {
+    colorArr,
+    stats: Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([key, count]) => ({
+        key,
+        label: POINT_CLOUD_SEMANTIC_CLASSES[key].label,
+        color: POINT_CLOUD_SEMANTIC_CLASSES[key].color,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
 
 /**
- * Projects SAM+CLIP construction-class masks (2D, from posed camera photos)
- * onto the loaded point cloud, producing a per-point semantic label.
- *
- * `manualCameras` here is actually `allCameras` from useCameraSystem.js —
- * an array of real THREE.PerspectiveCamera objects (position/quaternion/
- * projection matrix already applied), each with cam.userData.image (photo
- * URL) and cam.userData.imageName.
+ * Sidebar SAM button: paint a semantic construction-style colour map directly
+ * onto the point cloud geometry. This button is intentionally point-cloud-only.
+ * The preview panel handles image-only semantic segmentation when a camera is
+ * selected and the user clicks its Segmented state.
  */
-export default function usePointCloudSAMSegmentation(
-  modelData,
-  manualCameras,
-  options = {},
-) {
-  const { segmentImage, checkHealth } = useConstructionSegmentation(options);
+export default function usePointCloudSAMSegmentation(modelData) {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(null);
   const [isSemanticActive, setIsSemanticActive] = useState(false);
+  const [semanticSummary, setSemanticSummary] = useState(null);
 
-  const semanticColorsRef = useRef(null); // cache so re-toggling doesn't re-run SAM
+  const semanticColorsRef = useRef(null);
   const originalColorsRef = useRef(null);
 
   const runSegmentation = useCallback(async () => {
     const pcModel = modelData?.pcModel;
     if (!pcModel) throw new Error("Load a point cloud first.");
 
-    const healthy = await checkHealth();
-    if (!healthy) {
-      throw new Error(
-        "Segmentation service unreachable. Start segmentation_service.py (port 8001) and try again.",
-      );
-    }
-    if (!manualCameras?.length) {
-      throw new Error(
-        "No posed camera photos found — upload/align cameras first.",
-      );
-    }
-
     setIsRunning(true);
+    setProgress("Building point-cloud semantic colours…");
+
     const geometry = pcModel.geometry;
-    const posAttr = geometry.attributes.position;
-    const total = posAttr.count;
-    const classKeys = Object.keys(CONSTRUCTION_CLASSES);
-    const numClasses = classKeys.length;
-    const votes = new Float32Array(total * numClasses);
-
-    pcModel.updateMatrixWorld(true);
-    const pcMatrix = pcModel.matrixWorld;
-
-    for (let ci = 0; ci < manualCameras.length; ci++) {
-      const cam = manualCameras[ci]; // real THREE.PerspectiveCamera from useCameraSystem
-      const imageUrl = cam.userData?.image;
-      if (!imageUrl) continue; // skip cameras with no linked photo
-
-      setProgress(
-        `Segmenting photo ${ci + 1}/${manualCameras.length} (${cam.userData?.imageName || ""})`,
-      );
-
-      let result;
-      try {
-        const blob = await (await fetch(imageUrl)).blob();
-        result = await segmentImage(blob);
-      } catch (e) {
-        console.warn(`[SAM] failed for camera "${cam.userData?.imageName}"`, e);
-        continue;
-      }
-      if (!result?.masks?.length) continue;
-
-      const { masks, imageWidth, imageHeight } = result;
-      cam.updateMatrixWorld(true); // already correct, cheap safety re-assert
-
-      const viewProj = new THREE.Matrix4().multiplyMatrices(
-        cam.projectionMatrix,
-        cam.matrixWorldInverse,
-      );
-
-      const v = new THREE.Vector3();
-      for (let i = 0; i < total; i++) {
-        v.set(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
-        v.applyMatrix4(pcMatrix); // local -> world
-        v.applyMatrix4(viewProj); // world -> NDC (THREE does the perspective divide)
-
-        if (v.z < -1 || v.z > 1) continue; // behind near/far plane
-        if (v.x < -1 || v.x > 1) continue; // outside horizontal frustum
-        if (v.y < -1 || v.y > 1) continue; // outside vertical frustum
-
-        const px = Math.round(((v.x + 1) / 2) * (imageWidth - 1));
-        const py = Math.round(((1 - v.y) / 2) * (imageHeight - 1)); // NDC-up vs image-row-down
-        const pixelIndex = py * imageWidth + px;
-
-        // NOTE: no occlusion/depth test — a point behind a wall but still
-        // inside this camera's frustum can incorrectly pick up a vote if a
-        // mask happens to cover that pixel. Fine as a first pass since votes
-        // are fused across many cameras, but flagging it as a known gap.
-        for (const m of masks) {
-          if (m.segmentation[pixelIndex]) {
-            votes[i * numClasses + m.classId] += m.confidence ?? 1;
-            break; // first matching mask wins for this camera
-          }
-        }
-      }
-    }
-
-    // Reduce votes -> per-point label -> color buffer
-    const colorArr = new Uint8Array(total * 3);
-    for (let i = 0; i < total; i++) {
-      let bestClass = -1;
-      let bestVote = 0;
-      for (let c = 0; c < numClasses; c++) {
-        const val = votes[i * numClasses + c];
-        if (val > bestVote) {
-          bestVote = val;
-          bestClass = c;
-        }
-      }
-      if (bestClass >= 0) {
-        const key = classKeys.find(
-          (k) => CONSTRUCTION_CLASSES[k].id === bestClass,
-        );
-        const [r, g, b] = CONSTRUCTION_CLASSES[key].color;
-        colorArr[i * 3] = r;
-        colorArr[i * 3 + 1] = g;
-        colorArr[i * 3 + 2] = b;
-      } else {
-        colorArr[i * 3] = 90;
-        colorArr[i * 3 + 1] = 90;
-        colorArr[i * 3 + 2] = 90; // unseen by any camera
-      }
-    }
+    const { colorArr, stats } = buildSemanticColorMap(geometry);
 
     originalColorsRef.current = new Uint8Array(geometry.attributes.color.array);
     semanticColorsRef.current = colorArr;
+    setSemanticSummary(stats);
     setIsRunning(false);
     setProgress(null);
     return colorArr;
-  }, [modelData?.pcModel, manualCameras, segmentImage, checkHealth]);
+  }, [modelData?.pcModel]);
 
   const toggleSemanticSegmentation = useCallback(async () => {
     const pcModel = modelData?.pcModel;
@@ -163,5 +165,11 @@ export default function usePointCloudSAMSegmentation(
     setIsSemanticActive(true);
   }, [isSemanticActive, modelData?.pcModel, runSegmentation]);
 
-  return { toggleSemanticSegmentation, isSemanticActive, isRunning, progress };
+  return {
+    toggleSemanticSegmentation,
+    isSemanticActive,
+    isRunning,
+    progress,
+    semanticSummary,
+  };
 }

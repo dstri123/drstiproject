@@ -34,8 +34,9 @@ const RETAIN_RATIO = 0.7;
 
 // ─── RANSAC config ────────────────────────────────────────────────────────────
 const RANSAC_ITERATIONS = 200; // iterations per plane extraction
-const RANSAC_THRESHOLD = 0.05; // distance (world units) to count as inlier
-const RANSAC_MIN_INLIERS = 0.03; // min fraction of remaining points for a plane
+const RANSAC_THRESHOLD = 0.12; // distance (world units) to count as inlier
+const RANSAC_MIN_INLIERS = 0.08; // minimum share of remaining points needed for a plane
+const RANSAC_MIN_RATIO = 0.22; // require a dominant plane, not a random 3-point fit
 const MAX_PLANES = 8; // extract up to 8 planes
 const RANSAC_SAMPLE_SIZE = 50000; // work on a subsample for speed, then label all
 
@@ -214,6 +215,9 @@ function autoUpright(object) {
 function ransacSegment(geometry) {
   const pos = geometry.attributes.position;
   const total = pos.count;
+  if (!total) {
+    return new Uint8Array(0);
+  }
 
   // ── Build a flat array of {x,y,z,origIndex} for the working set ───────────
   // Use a subsample for the RANSAC search to keep it fast
@@ -231,8 +235,10 @@ function ransacSegment(geometry) {
   }
 
   const sampleSize = sample.length;
-  const planeLabels = new Int8Array(sampleSize).fill(-1); // -1 = unassigned
   const planes = []; // { nx, ny, nz, d }
+  if (!sampleSize) {
+    return new Uint8Array(total * 3).fill(0);
+  }
 
   let remaining = Array.from({ length: sampleSize }, (_, i) => i); // indices into sample[]
 
@@ -241,11 +247,12 @@ function ransacSegment(geometry) {
     if (remaining.length < 3) break;
 
     const minInliers = Math.max(
-      3,
+      6,
       Math.floor(remaining.length * RANSAC_MIN_INLIERS),
     );
     let bestPlane = null;
     let bestInliers = [];
+    let bestRatio = 0;
 
     for (let iter = 0; iter < RANSAC_ITERATIONS; iter++) {
       // 1. Sample 3 random points from remaining
@@ -280,21 +287,27 @@ function ransacSegment(geometry) {
         if (dist < RANSAC_THRESHOLD) inliers.push(remaining[ri]);
       }
 
-      if (inliers.length > bestInliers.length) {
+const ratio = inliers.length / remaining.length;
+      if (inliers.length > bestInliers.length || ratio > bestRatio) {        
         bestInliers = inliers;
         bestPlane = { nx, ny, nz, d };
+        bestRatio = ratio;
         // Early exit if we have a dominant plane
-        if (bestInliers.length > remaining.length * 0.5) break;
-      }
+if (bestRatio >= RANSAC_MIN_RATIO) break;      }
     }
 
-    // 4. Accept plane if it has enough inliers
-    if (!bestPlane || bestInliers.length < minInliers) break;
+    // 4. Accept plane only if we found a dominant surface cluster
+    if (
+      !bestPlane ||
+      bestInliers.length < minInliers ||
+      bestInliers.length / remaining.length < RANSAC_MIN_RATIO
+    ) {
+      break;
+    }
 
     planes.push(bestPlane);
     const inlierSet = new Set(bestInliers);
 
-    for (const ri of bestInliers) planeLabels[ri] = planeIdx;
 
     // 5. Remove inliers from remaining set
     remaining = remaining.filter((ri) => !inlierSet.has(ri));
@@ -1230,39 +1243,34 @@ export default function useModelLoader(sceneData, props) {
     if (!pcModel || !colorRefs.original) return;
 
     const next = !isSegmented;
+    const colorAttr = pcModel.geometry.attributes.color;
 
     if (next) {
-      // If RANSAC hasn't finished yet, run it now (blocking, but only once)
-      if (!colorRefs.segment) {
+  
         setIsSegmenting(true);
-        setTimeout(() => {
+        
           try {
+            if (!colorRefs.segment){
             colorRefs.segment = ransacSegment(pcModel.geometry);
-          } catch (e) {
-            console.error("RANSAC failed:", e);
-            setIsSegmenting(false);
-            return;
+         
           }
-          const colorAttr = pcModel.geometry.attributes.color;
           colorAttr.array.set(colorRefs.segment);
           colorAttr.needsUpdate = true;
           setIsSegmented(true);
+          } catch (e) {
+        console.error("RANSAC failed:", e);
+        setIsSegmented(false);
+      } finally {
           setIsSegmenting(false);
-        }, 50);
-        return;
+      
       }
 
-      const colorAttr = pcModel.geometry.attributes.color;
-      colorAttr.array.set(colorRefs.segment);
-      colorAttr.needsUpdate = true;
     } else {
-      const colorAttr = pcModel.geometry.attributes.color;
       colorAttr.array.set(colorRefs.original);
       colorAttr.needsUpdate = true;
+      setIsSegmented(false);
     }
 
-    setIsSegmented(next);
-    // eslint-disable-next-line
   }, [pcModel, isSegmented]);
 
   // ─── Visibility ────────────────────────────────────────────────────────────

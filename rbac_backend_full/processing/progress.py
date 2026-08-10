@@ -370,10 +370,10 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15):
 
     elements = extract_elements(ifc_path)
     if not elements:
-        return {"elements": [], "summary": _empty_summary(), "categories": []}
-
+    return {"elements": [], "summary": _empty_summary(), "categories": [], "point_count": 0, "threshold": threshold}
     # Cap the cloud for speed — 150k points is plenty for coverage/plane checks.
     pts = read_pointcloud_points(pc_path, max_points=150000)
+    point_count = len(pts)
 
     # Bring the cloud into the BIM local frame: inv(T_bim) · T_pc · pc_local.
     T_bim = compose_matrix(bim_transform)
@@ -433,8 +433,7 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15):
 
     summary = _summarize(results)
     categories = _by_category(results)
-    return {"elements": results, "summary": summary, "categories": categories}
-
+return {"elements": results, "summary": summary, "categories": categories, "point_count": point_count, "threshold": threshold}
 
 def _empty_summary():
     return {
@@ -482,3 +481,33 @@ def _by_category(results):
             "completion": round(pct, 1),
         })
     return out
+
+def sanitize_result(obj):
+    """Recursively convert numpy/scientific types to Python builtins for JSON.
+
+    This ensures DRF's JSON renderer can serialize the analyze output.
+    """
+    import numpy as _np
+
+    if obj is None:
+        return None
+    if isinstance(obj, (str, bool)):
+        return obj
+    if isinstance(obj, (int, float)):
+        return obj
+    if isinstance(obj, _np.generic):
+        try:
+            return obj.item()
+        except Exception:
+            return float(obj)
+    if isinstance(obj, dict):
+        return {k: sanitize_result(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_result(v) for v in obj]
+    try:
+        # Fallback: try to convert numpy arrays to lists
+        if hasattr(obj, "tolist"):
+            return sanitize_result(obj.tolist())
+    except Exception:
+        pass
+    return obj
