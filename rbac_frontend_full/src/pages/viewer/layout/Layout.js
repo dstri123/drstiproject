@@ -3,7 +3,7 @@ import Header from './Header';
 import IconToolbar from './IconToolbar';
 import ContextPanel from './Sidebar';
 
-export default function Layout({ sidebarProps, children }) {
+export default function Layout({ sidebarProps, children, projectSlug }) {
   const [activePanel, setActivePanel] = useState(null);
   const role = localStorage.getItem('role') || 'viewer';
 
@@ -37,6 +37,7 @@ export default function Layout({ sidebarProps, children }) {
           activePanel={activePanel}
           onSelectPanel={handleSelectPanel}
           role={role}
+          projectSlug={projectSlug}
         />
 
         {/* CONTEXTUAL PANEL — compact floating tool drawer */}

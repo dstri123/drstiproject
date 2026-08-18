@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { X, Eye, EyeOff, Trash2, ArrowLeft } from "lucide-react";
 import ElementMetadata from "../components/metadata/ElementMetadata";
 import { useToast } from "../../../components/ToastContainer";
-
 // ─── Spinner keyframes (injected once) ────────────────────────────────────────
 // ─── Overlap pill text — force visibility (scoped !important defeats any
 // global -webkit-text-fill-color / gradient-text rule elsewhere in the app
@@ -49,9 +48,6 @@ export default function ContextPanel(props) {
     setBimVisible,
     setPcVisible,
     setCameraPositionsFile,
-    cameraPositionsFile,
-    cameraFileName,
-    onClearCameraFile,
     showCameras,
     setShowCameras,
     selectedElement,
@@ -60,6 +56,11 @@ export default function ContextPanel(props) {
     bimElementCount,
     overlapElementCount,
     overlapElementNames = [],
+    // NEW — { byUuid: Map<uuid, count>, byExpressID: Map<expressID, count> },
+    // populated by useOverlap.js via setOverlapCounts and passed down from the
+    // page component. Used to look up the per-element point count for
+    // whichever element is currently selected.
+    overlapCounts,
     bimCategories = {},
     bimPoints,
     pcPoints,
@@ -110,7 +111,9 @@ export default function ContextPanel(props) {
     });
 
     const counts = new Map();
-    overlapElementNames.forEach((name) => {
+    overlapElementNames.forEach((item) => {
+      // CHANGED — item is now {name, count}, not a plain string.
+      const name = typeof item === "string" ? item : item.name;
       const cat = nameToCategory.get(name) || "Other";
       counts.set(cat, (counts.get(cat) || 0) + 1);
     });
@@ -119,6 +122,26 @@ export default function ContextPanel(props) {
       .map(([category, count]) => ({ category, count }))
       .sort((a, b) => b.count - a.count);
   }, [overlapElementNames, bimCategories]);
+
+  // NEW — per-element overlapping point count for whatever is currently
+  // selected. Prefers the IFC expressID key (matches useOverlap.js's
+  // elemIds), falls back to the Three.js mesh uuid (elemUuids) for non-IFC
+  // meshes. Returns 0 (not undefined) when nothing is found, so downstream
+  // rendering never sees NaN/undefined.
+  const overlappingPoints = useMemo(() => {
+    if (!selectedElement || !overlapCounts) return 0;
+    const { byUuid, byExpressID } = overlapCounts;
+    if (
+      selectedElement.expressID != null &&
+      byExpressID?.get(selectedElement.expressID) != null
+    ) {
+      return byExpressID.get(selectedElement.expressID);
+    }
+    if (selectedElement.uuid && byUuid?.get(selectedElement.uuid) != null) {
+      return byUuid.get(selectedElement.uuid);
+    }
+    return 0;
+  }, [selectedElement, overlapCounts]);
 
   const panels = {
     // ── UPLOAD ────────────────────────────────────────────────────────────────
@@ -288,25 +311,57 @@ export default function ContextPanel(props) {
                 background: "#fafafa",
               }}
             >
-              {overlapElementNames.map((name, i) => (
-                <li
-                  key={`${name}-${i}`}
-                  title={name}
-                  style={{
-                    padding: "5px 8px",
-                    fontSize: 11,
-                    borderBottom:
-                      i < overlapElementNames.length - 1
-                        ? "1px solid #eef0f2"
-                        : "none",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {i + 1}. {name}
-                </li>
-              ))}
+              {/* CHANGED — overlapElementNames entries are now {name, count}
+                  objects (see useOverlap.js), so each row shows the matched
+                  point-cloud point count alongside the element name. */}
+              {overlapElementNames.map((item, i) => {
+                const name = typeof item === "string" ? item : item.name;
+                const count = typeof item === "string" ? null : item.count;
+                return (
+                  <li
+                    key={`${name}-${i}`}
+                    title={name}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "5px 8px",
+                      fontSize: 11,
+                      borderBottom:
+                        i < overlapElementNames.length - 1
+                          ? "1px solid #eef0f2"
+                          : "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        minWidth: 0,
+                      }}
+                    >
+                      {i + 1}. {name}
+                    </span>
+                    {count != null && (
+                      <span
+                        style={{
+                          flexShrink: 0,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#0891b2",
+                          background: "#ecfeff",
+                          borderRadius: 999,
+                          padding: "1px 7px",
+                        }}
+                      >
+                        {count.toLocaleString()} pts
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
 
             {/* NEW — category-wise counts of the overlapping elements above */}
@@ -315,7 +370,7 @@ export default function ContextPanel(props) {
                 <SectionLabel text="Overlap by Category" />
                 <div
                   style={{
-                    border: "1px solid #E5E7EB",
+                    border: "1px solid #e5e7eb",
                     borderRadius: 6,
                     overflow: "hidden",
                     background: "#fff",
@@ -331,7 +386,7 @@ export default function ContextPanel(props) {
                         padding: "6px 9px",
                         borderBottom:
                           i < overlapByCategory.length - 1
-                            ? "1px solid #F1F5F9"
+                            ? "1px solid #f1f5f9"
                             : "none",
                       }}
                     >
@@ -348,8 +403,8 @@ export default function ContextPanel(props) {
                         style={{
                           fontSize: 11,
                           fontWeight: 700,
-                          color: "#16A34A",
-                          background: "#F0FDF4",
+                          color: "#16a34a",
+                          background: "#f0fdf4",
                           borderRadius: 999,
                           padding: "1px 8px",
                         }}
@@ -372,8 +427,16 @@ export default function ContextPanel(props) {
               selectedElement={selectedElement}
               bimElementCount={bimElementCount}
               overlapElementCount={overlapElementCount}
+              overlappingPoints={overlappingPoints}
               highlightOverlap={highlightOverlap}
               setHighlightOverlap={setHighlightOverlap}
+              onSaveOverlapData={() => {
+                if (window.sendOverlapSnapshot) {
+                  window.sendOverlapSnapshot();
+                } else {
+                  info("Open a project with a BIM + Point Cloud first.");
+                }
+              }}
             />
           </>
         )}
@@ -606,78 +669,6 @@ export default function ContextPanel(props) {
           accept=".txt"
           onFileSelected={setCameraPositionsFile}
         />
-
-        {/* ── Loaded camera TXT file row ── */}
-        {cameraPositionsFile && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 10px",
-              marginBottom: 7,
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              borderRadius: 6,
-            }}
-          >
-            {/* file icon */}
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#16a34a"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ flexShrink: 0 }}
-            >
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-            <span
-              style={{
-                flex: 1,
-                fontSize: 11,
-                fontWeight: 500,
-                color: "#166534",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-              title={cameraFileName || "camera.txt"}
-            >
-              {cameraFileName || "camera.txt"}
-            </span>
-            <button
-              title="Remove camera TXT file"
-              onClick={() => onClearCameraFile?.()}
-              style={{
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 20,
-                height: 20,
-                padding: 0,
-                background: "transparent",
-                border: "1px solid #fca5a5",
-                borderRadius: 4,
-                cursor: "pointer",
-                color: "#dc2626",
-                transition: "background 0.15s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#fef2f2")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        )}
-
         <CameraFolderZone />
 
         <div style={divider} />

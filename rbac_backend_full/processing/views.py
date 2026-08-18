@@ -856,9 +856,19 @@ class ProgressAnalyzeView(APIView):
                 "align and Save Position in the viewer for accurate overlap."
             )
 
+        # Prefer a live overlap snapshot sent from the viewer (its own
+        # voxel-hash "🟢 Overlapping Elements" check) over re-deriving overlap
+        # from the saved bim/pc transforms here — the snapshot reflects
+        # whatever alignment the user actually saw overlapping on screen, and
+        # sidesteps any mismatch between the browser's and ifcopenshell's IFC
+        # coordinate frames.
+        from .models import AlignmentPair
+        pair = AlignmentPair.objects.filter(bim_id=bim_id, pointcloud_id=pc_id).first()
+        overlap_snapshot = pair.overlap_snapshot if pair and pair.overlap_snapshot else None
+
         try:
             result = analyze(bim_path, pc_path, bim.transform, pc.transform,
-                             threshold=threshold)
+                             threshold=threshold, overlap_snapshot=overlap_snapshot)
             # Ensure all numeric types are native Python types for JSON.
             result = sanitize_result(result)
 
@@ -868,13 +878,18 @@ class ProgressAnalyzeView(APIView):
                 overall = float(result.get("summary", {}).get("overall_completion") or 0.0)
             except Exception:
                 overall = 0.0
-            if point_count == 0:
+            if overlap_snapshot is not None:
+                warnings.append(
+                    f"Using overlap data sent from the viewer ({pair.overlap_element_count or len(overlap_snapshot)} elements) "
+                    f"instead of server-side alignment."
+                )
+            elif point_count == 0:
                 warnings.append(
                     "Point cloud appears empty or could not be read — check file format and server-side file path."
                 )
             elif overall == 0.0 and not warnings:
                 warnings.append(
-                    "No overlap detected between BIM and point cloud. Ensure both models are aligned and saved in the viewer, and try a larger threshold."
+                    "No overlap detected between BIM and point cloud. Ensure both models are aligned and saved in the viewer, and try a larger threshold — or open the viewer, turn on \"Overlapping PointCloud Points\", and use \"Send Overlap to Progress Assessment\"."
                 )
         except Exception as e:
             import traceback
@@ -935,8 +950,9 @@ class ProgressSaveView(APIView):
                 element_type=e.get("element_type", ""),
                 category=e.get("category", ""),
                 name=e.get("name", ""),
-                bim_area=e.get("bim_area", 0.0),
-                overlap_area=e.get("overlap_area", 0.0),
+                bim_volume=e.get("bim_volume", 0.0),
+                bim_points=e.get("bim_points", 0),
+                overlap_points=e.get("overlap_points", 0),
                 completion=e.get("completion", 0.0),
                 status=e.get("status", "not_started"),
             )
@@ -1017,6 +1033,60 @@ class AlignmentPairView(APIView):
         })
 
 
+class OverlapSnapshotSaveView(APIView):
+    """
+    POST /api/v1/processing/progress/overlap-snapshot/
+    Saves the viewer's live, voxel-hash-computed overlap data (per-element
+    actual overlapping point counts, keyed by IFC expressID) onto the
+    registered BIM↔PointCloud pair, so Progress Assessment can use these
+    browser-verified counts instead of re-deriving overlap server-side.
+    Body: { project_id, bim_id, pointcloud_id, bim_element_count,
+            overlap_element_count, overlap_points_by_express_id }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.utils import timezone
+        from projects.models import Project, BIMData, PointCloudData
+        from .models import AlignmentPair
+
+        d = request.data or {}
+        try:
+            project = Project.objects.get(id=d.get("project_id"))
+            bim = BIMData.objects.get(id=d.get("bim_id"))
+            pc = PointCloudData.objects.get(id=d.get("pointcloud_id"))
+        except (Project.DoesNotExist, BIMData.DoesNotExist,
+                PointCloudData.DoesNotExist):
+            return Response({"error": "project/bim/pointcloud not found"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        raw_map = d.get("overlap_points_by_express_id") or {}
+        try:
+            overlap_map = {str(k): int(v) for k, v in raw_map.items()}
+        except (TypeError, ValueError):
+            return Response({"error": "overlap_points_by_express_id must map expressID -> count"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        pair, created = AlignmentPair.objects.update_or_create(
+            bim=bim, pointcloud=pc,
+            defaults={
+                "project": project,
+                "bim_date": bim.date,
+                "pointcloud_date": pc.date,
+                "bim_element_count": d.get("bim_element_count"),
+                "overlap_element_count": d.get("overlap_element_count"),
+                "overlap_snapshot": overlap_map,
+                "overlap_snapshot_at": timezone.now(),
+            },
+        )
+        return Response({
+            "message": "Overlap snapshot saved",
+            "pair_id": pair.id,
+            "created": created,
+            "elements_with_overlap": len(overlap_map),
+        })
+
+
 class AlignmentPairListView(APIView):
     """
     GET /api/v1/processing/alignment/pairs/<project_id>/
@@ -1044,5 +1114,8 @@ class AlignmentPairListView(APIView):
                 "fitness": p.fitness,
                 "rmse": p.rmse,
                 "updated_at": p.updated_at,
+                "has_overlap_snapshot": bool(p.overlap_snapshot),
+                "overlap_element_count": p.overlap_element_count,
+                "overlap_snapshot_at": p.overlap_snapshot_at,
             })
         return Response(data)

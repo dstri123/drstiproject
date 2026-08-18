@@ -25,13 +25,21 @@ const TOOLS = [
   { id: "settings", icon: Settings, label: "Settings" },
 ];
 
-export default function IconToolbar({ activePanel, onSelectPanel, role }) {
+export default function IconToolbar({
+  activePanel,
+  onSelectPanel,
+  role,
+  projectSlug: projectSlugProp,
+}) {
   const [hovered, setHovered] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
-  // Viewer route param is :projectSlug, Analytics route param is :slug.
+  // Viewer/Analytics/Progress are rendered by PersistentWorkspace (not as a
+  // matched <Route>), so useParams() alone no longer resolves the slug — the
+  // page passes it down explicitly. Keep the useParams() fallback in case
+  // this is ever rendered directly by a matched <Route>.
   const params = useParams();
-  const projectSlug = params.projectSlug || params.slug;
+  const projectSlug = projectSlugProp ?? (params.projectSlug || params.slug);
   const projectId = getProjectIdFromSlug(projectSlug);
 
   const isViewer = role === "viewer";

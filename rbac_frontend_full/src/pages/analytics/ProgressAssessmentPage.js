@@ -139,8 +139,13 @@ function SummaryCard({ icon: Icon, label, value, color, onClick, active }) {
   );
 }
 
-export default function ProgressAssessmentPage() {
-  const { slug: routeParam } = useParams();
+export default function ProgressAssessmentPage({ routeParam: routeParamProp } = {}) {
+  // Accepts routeParam as a prop (from PersistentWorkspace, which keeps this
+  // page mounted across navigation to the Viewer/Analytics) — falls back to
+  // the route param so this still works if ever rendered directly by a
+  // matched <Route>.
+  const params = useParams();
+  const routeParam = routeParamProp ?? params.slug;
   const toast = useToast();
   const role = localStorage.getItem("role") || "viewer";
 
@@ -345,7 +350,12 @@ export default function ProgressAssessmentPage() {
     >
       <Header />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <IconToolbar activePanel={null} onSelectPanel={() => {}} role={role} />
+        <IconToolbar
+          activePanel={null}
+          onSelectPanel={() => {}}
+          role={role}
+          projectSlug={routeParam}
+        />
 
         <div
           style={{
@@ -478,6 +488,7 @@ export default function ProgressAssessmentPage() {
                         "PC id",
                         "Method",
                         "Overlap / Fit",
+                        "Viewer Overlap",
                       ].map((h) => (
                         <th key={h} style={thStyle}>
                           {h}
@@ -520,6 +531,31 @@ export default function ProgressAssessmentPage() {
                             </div>
                           ) : (
                             "—"
+                          )}
+                        </td>
+                        <td style={tdStyle}>
+                          {pr.has_overlap_snapshot ? (
+                            <span
+                              title={
+                                pr.overlap_snapshot_at
+                                  ? `Sent from viewer at ${new Date(pr.overlap_snapshot_at).toLocaleString()}`
+                                  : "Sent from viewer"
+                              }
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: "#16a34a",
+                                background: "#f0fdf4",
+                                borderRadius: 999,
+                                padding: "2px 8px",
+                              }}
+                            >
+                              ✓ {pr.overlap_element_count ?? ""} elements
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                              —
+                            </span>
                           )}
                         </td>
                       </tr>
@@ -629,9 +665,9 @@ export default function ProgressAssessmentPage() {
                   />
                 </div>
                 <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 10 }}>
-                  Extracting BIM elements → loading the point cloud → matching
-                  surface coverage per element. Large clouds / many elements
-                  take longer.
+                  Extracting BIM elements → computing 3D volume → loading the
+                  point cloud → matching overlapping points per element.
+                  Large clouds / many elements take longer.
                 </div>
                 <style>{`
                   @keyframes pa-spin { to { transform: rotate(360deg); } }
@@ -653,6 +689,27 @@ export default function ProgressAssessmentPage() {
 
             {summary && (
               <>
+                {result?.overlap_source === "viewer_snapshot" && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                      color: "#166534",
+                      background: "#f0fdf4",
+                      border: "1px solid #bbf7d0",
+                      borderRadius: 8,
+                      padding: "8px 12px",
+                      marginBottom: 12,
+                    }}
+                  >
+                    ✓ Overlap Points below come from the viewer's live
+                    "Overlapping PointCloud Points" check (sent via "Send
+                    Overlap to Progress Assessment"), not server-side
+                    alignment.
+                  </div>
+                )}
                 {/* Summary cards + donut */}
                 <div
                   style={{
@@ -750,8 +807,10 @@ export default function ProgressAssessmentPage() {
                           {[
                             "Category",
                             "Count",
-                            "BIM Area (m²)",
-                            "Overlap (m²)",
+                            "BIM Volume (m³)",
+                            "Overlap Volume (m³)",
+                            "BIM Points",
+                            "Overlap Points",
                             "Completion",
                           ].map((h) => (
                             <th key={h} style={thStyle}>
@@ -765,8 +824,12 @@ export default function ProgressAssessmentPage() {
                           <tr key={c.category}>
                             <td style={tdStyle}>{c.category}</td>
                             <td style={tdStyle}>{c.count}</td>
-                            <td style={tdStyle}>{c.bim_area}</td>
-                            <td style={tdStyle}>{c.overlap_area}</td>
+                            <td style={tdStyle}>{c.bim_volume}</td>
+                            <td style={tdStyle}>{c.overlap_volume}</td>
+                            <td style={tdStyle}>{c.bim_points.toLocaleString()}</td>
+                            <td style={tdStyle}>
+                              {c.overlap_points.toLocaleString()}
+                            </td>
                             <td style={tdStyle}>
                               <div
                                 style={{
@@ -838,8 +901,9 @@ export default function ProgressAssessmentPage() {
                           {[
                             "Element ID",
                             "Type",
-                            "BIM Area",
-                            "Overlap",
+                            "BIM Volume (m³)",
+                            "BIM Points",
+                            "Overlap Points",
                             "Completion",
                             "Status",
                           ].map((h) => (
@@ -864,8 +928,11 @@ export default function ProgressAssessmentPage() {
                                 {e.name || e.element_id}
                               </td>
                               <td style={tdStyle}>{e.element_type}</td>
-                              <td style={tdStyle}>{e.bim_area}</td>
-                              <td style={tdStyle}>{e.overlap_area}</td>
+                              <td style={tdStyle}>{e.bim_volume}</td>
+                              <td style={tdStyle}>{e.bim_points.toLocaleString()}</td>
+                              <td style={tdStyle}>
+                                {e.overlap_points.toLocaleString()}
+                              </td>
                               <td style={tdStyle}>
                                 <div
                                   style={{

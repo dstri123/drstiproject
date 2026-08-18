@@ -10,6 +10,8 @@ import {
   SlidersHorizontal,
   Loader2,
   Route,
+  Table2,
+  X,
 } from "lucide-react";
 import * as THREE from "three";
 import { useToast } from "../../../../components/ToastContainer";
@@ -888,6 +890,48 @@ function ThreeViewer({
     },
     [modelData],
   );
+
+  // ── Camera data table (Camera ID + user-defined columns) ─────────────────
+  const [cameraTableOpen, setCameraTableOpen] = useState(false);
+  // Extra columns beyond "Camera ID", e.g. ["Notes", "Status"]
+  const [cameraTableColumns, setCameraTableColumns] = useState([]);
+  // { [cameraId]: { [columnName]: value } }
+  const [cameraTableData, setCameraTableData] = useState({});
+  const [colorByColumn, setColorByColumn] = useState(null); // NEW
+
+  // Camera IDs come from every posed camera currently in the scene
+  // (parsed from the camera positions file + any manually added ones).
+  // const cameraIds = (allCameras || [])
+  //   .map((cam) => cam.userData?.imageName || cam.userData?.name)
+  //   .filter(Boolean);
+
+  const addCameraTableColumn = useCallback(() => {
+    const name = window.prompt("New column name:");
+    const key = name?.trim();
+    if (!key) return;
+    setCameraTableColumns((prev) =>
+      prev.includes(key) ? prev : [...prev, key],
+    );
+  }, []);
+
+  const removeCameraTableColumn = useCallback((key) => {
+    setCameraTableColumns((prev) => prev.filter((c) => c !== key));
+    setCameraTableData((prev) => {
+      const next = {};
+      for (const [camId, row] of Object.entries(prev)) {
+        const { [key]: _drop, ...rest } = row;
+        next[camId] = rest;
+      }
+      return next;
+    });
+  }, []);
+
+  const updateCameraTableCell = useCallback((camId, key, value) => {
+    setCameraTableData((prev) => ({
+      ...prev,
+      [camId]: { ...(prev[camId] || {}), [key]: value },
+    }));
+  }, []);
   // Per-model scale factor (1 = auto-placed size).
   const [scaleFactor, setScaleFactor] = useState({
     "BIM Model": 1,
@@ -988,7 +1032,41 @@ function ThreeViewer({
     toggleCameraVisibility,
     toggleCameraPath,
     cameraPathVisible,
+    colorCamerasByColumn,
+    resetCameraColors,
   } = cameraData;
+
+  // ← add this right here
+  const cameraIds = (allCameras || [])
+    .map((cam) => cam.userData?.imageName || cam.userData?.name)
+    .filter(Boolean);
+
+  // ── NEW: paste multi-line clipboard content into a column ─────────────────
+  const handleColumnPaste = useCallback(
+    (e, startCamId, col) => {
+      const text = e.clipboardData?.getData("text");
+      if (!text || !text.includes("\n")) return;
+
+      e.preventDefault();
+      const values = text
+        .split(/\r?\n/)
+        .filter((v, i, arr) => !(i === arr.length - 1 && v === ""));
+
+      const startIdx = cameraIds.indexOf(startCamId);
+      if (startIdx === -1) return;
+
+      setCameraTableData((prev) => {
+        const next = { ...prev };
+        values.forEach((val, i) => {
+          const camId = cameraIds[startIdx + i];
+          if (!camId) return;
+          next[camId] = { ...(next[camId] || {}), [col]: val.trim() };
+        });
+        return next;
+      });
+    },
+    [cameraIds],
+  );
 
   useEffect(() => {
     onManualCamerasChange?.({
@@ -1271,6 +1349,19 @@ function ThreeViewer({
           onClick={(e) => {
             e.stopPropagation();
             toggleCameraPath();
+          }}
+        />
+
+        <ToolbarButton
+          icon={<Table2 size={18} />}
+          label="Camera data table"
+          active={cameraTableOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            setCameraTableOpen((open) => {
+              console.log("cameraTableOpen ->", !open);
+              return !open;
+            });
           }}
         />
 
@@ -1870,6 +1961,259 @@ function ThreeViewer({
                 Place Models
               </button>
             </div>
+          </div>
+        )}
+        {cameraTableOpen && (
+          <div
+            style={{
+              width: 360,
+              maxHeight: "min(70vh, 480px)",
+              padding: 14,
+              borderRadius: 16,
+              background: "rgba(255,255,255,0.96)",
+              border: "1px solid rgba(148,163,184,0.32)",
+              boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
+              color: "#0f172a",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 10,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 700 }}>Camera Data</div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  addCameraTableColumn();
+                }}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#0f172a",
+                  cursor: "pointer",
+                }}
+              >
+                + Column
+              </button>
+            </div>
+            {cameraTableColumns.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 10,
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}
+                >
+                  Color by:
+                </span>
+                <select
+                  value={colorByColumn || ""}
+                  onChange={(e) => setColorByColumn(e.target.value || null)}
+                  style={{
+                    fontSize: 11,
+                    padding: "3px 6px",
+                    borderRadius: 6,
+                    border: "1px solid #cbd5e1",
+                  }}
+                >
+                  <option value="">Select column</option>
+                  {cameraTableColumns.map((col) => (
+                    <option key={col} value={col}>
+                      {col}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!colorByColumn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    colorCamerasByColumn(cameraTableData, colorByColumn);
+                  }}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    background: colorByColumn ? "#2563eb" : "#f1f5f9",
+                    color: colorByColumn ? "#fff" : "#94a3b8",
+                    cursor: colorByColumn ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Apply Colors
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    resetCameraColors();
+                  }}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    background: "#f8fafc",
+                    color: "#0f172a",
+                    cursor: "pointer",
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            )}
+
+            <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
+              <table
+                style={{
+                  borderCollapse: "collapse",
+                  width: "100%",
+                  fontSize: 12,
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th
+                      style={{
+                        position: "sticky",
+                        top: 0,
+                        background: "#f1f5f9",
+                        textAlign: "left",
+                        padding: "6px 8px",
+                        borderBottom: "1px solid #e2e8f0",
+                        fontWeight: 700,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Camera ID
+                    </th>
+                    {cameraTableColumns.map((col) => (
+                      <th
+                        key={col}
+                        style={{
+                          position: "sticky",
+                          top: 0,
+                          background: "#f1f5f9",
+                          textAlign: "left",
+                          padding: "6px 8px",
+                          borderBottom: "1px solid #e2e8f0",
+                          fontWeight: 700,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <span>{col}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeCameraTableColumn(col);
+                            }}
+                            title={`Remove column "${col}"`}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "#94a3b8",
+                              cursor: "pointer",
+                              display: "grid",
+                              placeItems: "center",
+                              padding: 0,
+                            }}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {cameraIds.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={1 + cameraTableColumns.length}
+                        style={{ padding: "12px 8px", color: "#94a3b8" }}
+                      >
+                        No cameras loaded yet — load a camera positions file or
+                        add a camera manually.
+                      </td>
+                    </tr>
+                  )}
+                  {cameraIds.map((camId) => (
+                    <tr key={camId}>
+                      <td
+                        style={{
+                          padding: "6px 8px",
+                          borderBottom: "1px solid #f1f5f9",
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {camId}
+                      </td>
+                      {cameraTableColumns.map((col) => (
+                        <td
+                          key={col}
+                          style={{
+                            padding: "4px 6px",
+                            borderBottom: "1px solid #f1f5f9",
+                          }}
+                        >
+                          <input
+                            value={cameraTableData[camId]?.[col] ?? ""}
+                            onChange={(e) =>
+                              updateCameraTableCell(camId, col, e.target.value)
+                            }
+                            onPaste={(e) => handleColumnPaste(e, camId, col)}
+                            placeholder="—"
+                            style={{
+                              width: "100%",
+                              padding: "4px 6px",
+                              fontSize: 11,
+                              borderRadius: 6,
+                              border: "1px solid #e2e8f0",
+                              outline: "none",
+                            }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {cameraTableColumns.length === 0 && cameraIds.length > 0 && (
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
+                Click "+ Column" to add fields (e.g. Notes, Status) that you can
+                fill in per camera.
+              </div>
+            )}
           </div>
         )}
       </div>
