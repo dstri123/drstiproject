@@ -30,6 +30,7 @@ import UserDashboard from "./pages/user/Dashboard";
 
 // Layout
 import DashboardLayout from "./layouts/DashboardLayout";
+import PersistentWorkspace from "./layouts/PersistentWorkspace";
 import { ToastProvider } from "./components/ToastContainer";
 
 //subroles
@@ -43,13 +44,13 @@ import ProjectDetailsPage from "./pages/roles/ProjectDetailsPage";
 // Tools
 import ToolsPage from "./pages/tools/ToolsPage";
 
-import ViewerPage from "./pages/viewer/ViewerPage";
 import MapGroundSpike from "./pages/viewer/MapGroundSpike";
 import PhotoFolders from "./pages/photos/PhotoFolders";
 import PhotoFolderView from "./pages/photos/PhotoFolderView";
 import PhotoUpload from "./pages/photos/PhotoUpload";
-import AnalyticsPage from "./pages/analytics/AnalyticsPage";
-import ProgressAssessmentPage from "./pages/analytics/ProgressAssessmentPage";
+// ViewerPage / AnalyticsPage / ProgressAssessmentPage are no longer routed
+// directly — PersistentWorkspace renders them as permanent, always-mounted
+// siblings of <Routes> so they survive navigation between each other.
 
 export default function App() {
   return (
@@ -105,8 +106,6 @@ export default function App() {
           {/* Tools */}
           <Route path="/tools" element={<ToolsPage />} />
 
-          {/* 3D Viewer */}
-          <Route path="/viewer/:projectSlug" element={<ViewerPage />} />
           {/* SPIKE: MapLibre + Three.js geo map prototype */}
           <Route path="/map-spike" element={<MapGroundSpike />} />
           <Route path="/photos" element={<PhotoFolders />} />
@@ -116,11 +115,13 @@ export default function App() {
             path="/project/:slug/data/upload-images"
             element={<PhotoUpload />}
           />
-          {/* Analytics — split-screen model comparison, project ID from viewer */}
-          <Route path="/analytics/:slug" element={<AnalyticsPage />} />
-          <Route path="/progress/:slug" element={<ProgressAssessmentPage />} />
+          {/* 3D Viewer, Analytics (split-screen model comparison), and
+              Progress Assessment are handled by PersistentWorkspace below —
+              not routed here — so they stay mounted across navigation
+              between each other instead of reloading from scratch. */}
         </Route>
       </Routes>
+      <PersistentWorkspace />
     </BrowserRouter>
     </ToastProvider>
   );

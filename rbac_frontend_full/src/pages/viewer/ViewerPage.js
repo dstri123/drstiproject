@@ -8,8 +8,13 @@ import Layout from "./layout/Layout";
 import ThreeViewer from "./components/viewer/ThreeViewer";
 import { useToast } from "../../components/ToastContainer";
 
-export default function ViewerPage() {
-  const { projectSlug } = useParams();
+export default function ViewerPage({ projectSlug: projectSlugProp } = {}) {
+  // Accepts projectSlug as a prop (from PersistentWorkspace, which keeps this
+  // page mounted across navigation to Analytics/Progress) — falls back to the
+  // route param so ViewerPage still works if ever rendered directly by a
+  // matched <Route>.
+  const params = useParams();
+  const projectSlug = projectSlugProp ?? params.projectSlug;
   const [resolvedProjectId, setResolvedProjectId] = useState(() =>
     getProjectIdFromSlug(projectSlug),
   );
@@ -475,6 +480,7 @@ resolveRemoteUrl(matrixItem.file),
     };
   }, [handleSaveAlignmentPair]);
 
+
   // Persist the geolocation a contributor sets via the Map Location panel
   // ("Place Models") back to the project record.
   const handleSaveGeo = async ({
@@ -576,8 +582,76 @@ resolveRemoteUrl(matrixItem.file),
   const [overlapElementCount, setOverlapElementCount] = useState(0);
   const [overlapElementNames, setOverlapElementNames] = useState([]); // NEW
 
+  // Explicit, user-initiated: send the viewer's own live voxel-hash overlap
+  // check (the same numbers shown as "Overlapping Elements" / "Overlap by
+  // Category") to the backend, so the Progress Assessment page can use these
+  // browser-verified per-element point counts instead of re-deriving overlap
+  // from the saved bim/pc position transforms (which can disagree with what
+  // the viewer visually shows if that saved alignment isn't accurate).
+  const handleSendOverlapSnapshot = useCallback(async () => {
+    if (!latestBimItem || !latestPointItem) {
+      toast.info("Load both a BIM and a Point Cloud to send overlap data.");
+      return;
+    }
+    if (!overlapElementNames.length) {
+      toast.info(
+        'Turn on "Overlapping PointCloud Points" for a selected element first, so there\'s overlap data to send.',
+      );
+      return;
+    }
+    // overlapElementNames entries look like {name: "IFCBEAM #101193", count}.
+    // The trailing "#<expressID>" is the same STEP express ID ifcopenshell
+    // uses server-side, so it's a stable key to match elements across both.
+    const overlapPointsByExpressId = {};
+    overlapElementNames.forEach((item) => {
+      const name = typeof item === "string" ? item : item?.name;
+      const count = typeof item === "string" ? null : item?.count;
+      const m = /#(\d+)\s*$/.exec(name || "");
+      if (m && count != null) overlapPointsByExpressId[m[1]] = count;
+    });
+    if (!Object.keys(overlapPointsByExpressId).length) {
+      toast.info(
+        "No IFC element IDs found in the current overlap data (non-IFC models aren't supported yet).",
+      );
+      return;
+    }
+    try {
+      await API.post("processing/progress/overlap-snapshot/", {
+        project_id: id,
+        bim_id: latestBimItem.id,
+        pointcloud_id: latestPointItem.id,
+        bim_element_count: bimElementCount,
+        overlap_element_count: overlapElementCount,
+        overlap_points_by_express_id: overlapPointsByExpressId,
+      });
+      toast.success(
+        `Sent overlap data for ${Object.keys(overlapPointsByExpressId).length} elements to Progress Assessment.`,
+      );
+    } catch (e) {
+      console.error("overlap snapshot save failed", e);
+      toast.error(e.response?.data?.error || "Could not send overlap data.");
+    }
+  }, [
+    id,
+    latestBimItem,
+    latestPointItem,
+    overlapElementNames,
+    bimElementCount,
+    overlapElementCount,
+    toast,
+  ]);
+
+  // Expose to the sidebar "Send Overlap to Progress Assessment" button.
+  useEffect(() => {
+    window.sendOverlapSnapshot = handleSendOverlapSnapshot;
+    return () => {
+      delete window.sendOverlapSnapshot;
+    };
+  }, [handleSendOverlapSnapshot]);
+
   return (
     <Layout
+      projectSlug={projectSlug}
       sidebarProps={{
         bimFile,
         pointFile,

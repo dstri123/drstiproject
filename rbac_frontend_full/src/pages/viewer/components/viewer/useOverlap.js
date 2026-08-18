@@ -19,23 +19,30 @@ const matrixSig = (obj) => (obj ? obj.matrixWorld.elements.join(",") : "");
  * hash lookup → ~O(points) total. The BIM hash is cached and only rebuilt when
  * the BIM actually moves, so re-highlighting after dragging the point cloud is
  * just the point pass. Also re-runs on drag-end during manual alignment.
+ *
+ * CHANGED — per-element overlap point counts are now pushed to React state via
+ * `setOverlapCounts` instead of being stashed on `window.__overlapCountsByUuid`
+ * / `window.__overlapCountsByExpressID`. The old window-global approach never
+ * triggered a re-render, so any UI (like the sidebar) reading those counts
+ * would always show stale/zero values.
  */
 export default function useOverlap(sceneData, modelData, props) {
   const { pcModel, bimModel } = modelData;
   const {
     highlightOverlap,
     setOverlapElementCount,
-    setOverlapElementNames, // NEW — optional callback, resolved element names
+    setOverlapElementNames, // optional callback, resolved element names
+    setOverlapCounts, // NEW — optional callback: ({byUuid, byExpressID}) => void
   } = props;
 
   const bimCacheRef = useRef({
     sig: null,
     occupied: null,
     voxelToElems: null,
-    elemNames: null, // NEW
-    elemUuids: null, // NEW
-    elemIds: null, // NEW — expressID or mesh index
-    isIfc: false, // NEW
+    elemNames: null,
+    elemUuids: null,
+    elemIds: null, // expressID or mesh index
+    isIfc: false,
   });
   const lastSigRef = useRef("");
 
@@ -157,19 +164,13 @@ export default function useOverlap(sceneData, modelData, props) {
     // Start from the original colours so re-runs don't accumulate green.
     colAttr.array.set(geom.userData.originalColors);
 
-    const {
-      occupied,
-      voxelToElems,
-      elemNames,
-      elemUuids,
-      elemIds,
-      isIfc,
-    } = getBimVoxels();
+    const { occupied, voxelToElems, elemNames, elemUuids, elemIds, isIfc } =
+      getBimVoxels();
     pcModel.updateMatrixWorld(true);
     const m = pcModel.matrixWorld;
     const v = new THREE.Vector3();
     const hitElems = new Set();
-    const hitCounts = new Map(); // NEW — elemIndex -> point count
+    const hitCounts = new Map(); // elemIndex -> point count
     const count = posAttr.count;
 
     for (let i = 0; i < count; i++) {
@@ -189,12 +190,20 @@ export default function useOverlap(sceneData, modelData, props) {
     colAttr.needsUpdate = true;
     setOverlapElementCount(hitElems.size);
 
+    // CHANGED — each entry now carries its point count alongside the name
+    // (was just the name string before), so the sidebar list can show
+    // "IFCBEAM #101193 — 342 pts" instead of only the name.
     setOverlapElementNames?.(
       Array.from(hitElems)
-        .map((idx) => elemNames?.[idx] ?? `Element ${idx + 1}`)
-        .sort((a, b) => a.localeCompare(b)),
+        .map((idx) => ({
+          name: elemNames?.[idx] ?? `Element ${idx + 1}`,
+          count: hitCounts.get(idx) || 0,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     );
 
+    // CHANGED — build per-element count maps and push them to React state
+    // via the setOverlapCounts callback instead of window globals.
     const countsByUuid = new Map();
     const countsByExpressID = new Map();
     hitCounts.forEach((cnt, idx) => {
@@ -204,8 +213,10 @@ export default function useOverlap(sceneData, modelData, props) {
         countsByExpressID.set(elemIds[idx], cnt);
       }
     });
-    window.__overlapCountsByUuid = countsByUuid;
-    window.__overlapCountsByExpressID = countsByExpressID;
+    setOverlapCounts?.({
+      byUuid: countsByUuid,
+      byExpressID: countsByExpressID,
+    });
 
     lastSigRef.current = matrixSig(bimModel) + "|" + matrixSig(pcModel);
   }, [
@@ -213,7 +224,8 @@ export default function useOverlap(sceneData, modelData, props) {
     bimModel,
     getBimVoxels,
     setOverlapElementCount,
-    setOverlapElementNames, // NEW
+    setOverlapElementNames,
+    setOverlapCounts, // NEW
   ]);
 
   // Toggle on/off.
@@ -228,14 +240,18 @@ export default function useOverlap(sceneData, modelData, props) {
         geom.attributes.color.needsUpdate = true;
       }
       setOverlapElementNames?.([]);
-      window.__overlapCountsByUuid = new Map(); // NEW
+      // CHANGED — counts are intentionally NOT cleared here. Turning the
+      // green highlight off shouldn't erase the last computed per-element
+      // point counts; the sidebar should keep showing them. If you want the
+      // numbers to disappear when toggled off, uncomment the next line:
+      // setOverlapCounts?.({ byUuid: new Map(), byExpressID: new Map() });
     }
   }, [
     highlightOverlap,
     highlightOverlappingPoints,
     pcModel,
     setOverlapElementNames,
-  ]); // CHANGED (added dep)
+  ]);
 
   // Recompute when a model is moved (drag-end) during manual alignment — only
   // if the highlight is on AND the world transforms actually changed.

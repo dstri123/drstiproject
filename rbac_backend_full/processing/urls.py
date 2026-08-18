@@ -15,6 +15,7 @@ from .views import (
     ProgressHistoryView,
     AlignmentPairView,
     AlignmentPairListView,
+    OverlapSnapshotSaveView,
 )
 
 urlpatterns = [
@@ -59,4 +60,8 @@ urlpatterns = [
     path('alignment/pair/', AlignmentPairView.as_view(), name='alignment-pair'),
     path('alignment/pairs/<int:project_id>/', AlignmentPairListView.as_view(),
          name='alignment-pairs'),
+
+    # Viewer's live voxel-hash overlap snapshot, for Progress Assessment
+    path('progress/overlap-snapshot/', OverlapSnapshotSaveView.as_view(),
+         name='progress-overlap-snapshot'),
 ]

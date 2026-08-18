@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { viridisColor } from "../../enhancements/utils/colormap.js";
 import * as THREE from "three";
 
 const GLOBAL_IMAGE_MAP = {};
@@ -378,40 +379,28 @@ export default function useCameraSystem(sceneData, modelData, props) {
     }
 
     const cams = camerasRef.current.filter((c) => !c.userData.isManual);
-    if (cams.length < 2) return;
-
-    const ordered = nearestNeighborOrder(cams);
-    const anchors = ordered.map((c) => c.position.clone());
-
-    // ── connecting line (thin, light — the "corridor" the dots sit on) ───────
-    const curve = new THREE.CatmullRomCurve3(anchors, false, "catmullrom", 0.5);
-    const samples = Math.max(anchors.length * 8, 50);
-    const curvePoints = curve.getPoints(samples);
-
-    const lineGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0xcbd5e1,
-      transparent: true,
-      opacity: 0.8,
-    });
-    const line = new THREE.Line(lineGeo, lineMat);
-    line.visible = cameraPathVisibleRef.current;
-    line.raycast = () => {};
-    line.renderOrder = 998;
-    sceneRef.current.add(line);
-    pathLineRef.current = line;
-
-    // ── red dot at each camera position, in path order ────────────────────────
+   // Create red dots directly at the camera positions
     const dotGroup = new THREE.Group();
-    const dotGeo = new THREE.SphereGeometry(1, 10, 10); // unit sphere, scaled per-frame like markers
-    const dotMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
-    anchors.forEach((pos) => {
+
+    const dotGeo = new THREE.SphereGeometry(1, 12, 12);
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 0xdc2626,
+    });
+
+    cams.forEach((cam) => {
       const dot = new THREE.Mesh(dotGeo, dotMat);
-      dot.position.copy(pos);
+
+      // EXACT same location as the camera
+      dot.position.copy(cam.position);
+
       dot.raycast = () => {};
+      dot.renderOrder = 999;
+
       dotGroup.add(dot);
     });
+
     dotGroup.visible = cameraPathVisibleRef.current;
+
     sceneRef.current.add(dotGroup);
     pathDotsRef.current = dotGroup;
   }, [sceneRef]);
@@ -538,8 +527,8 @@ export default function useCameraSystem(sceneData, modelData, props) {
       if (pathDotsRef.current) {
         pathDotsRef.current.children.forEach((dot) => {
           const distance = mainCam.position.distanceTo(dot.position);
-          let scale = distance * 0.015;
-          scale = Math.max(0.03, Math.min(scale, 1.2));
+          let scale = distance * 0.008;
+          scale = Math.max(0.03, Math.min(scale, 0.35));
           dot.scale.setScalar(scale);
         });
       }
@@ -549,60 +538,60 @@ export default function useCameraSystem(sceneData, modelData, props) {
 
     return () => cancelAnimationFrame(raf);
   }, [cameraRef]);
-
+// crt
   // ── PARSE images.txt ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!cameraPositionsFile) {
-      cleanupAll();
-      originalPosRef.current = [];
-      return;
-    }
-    // An uploaded Matrix File (.json) for this batch is baked straight into
-    // the camera positions, same as the manual "Upload Camera Matrix" flow.
-    if (uploadedCameraMatrix) {
-      matrixRef.current = uploadedCameraMatrix;
-      matrixAppliedRef.current = true;
-    } else {
-      matrixAppliedRef.current = false;
-    }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const parsed = [];
-      e.target.result.split("\n").forEach((line) => {
-        if (!line.trim() || line.startsWith("#")) return;
-        const p = line.trim().split(/\s+/);
-        if (p.length < 10) return;
-        const imageName = p[9];
-        const nums = [p[1], p[2], p[3], p[4], p[5], p[6], p[7]].map(Number);
-        if (nums.some(isNaN)) return;
-        const [qw, qx, qy, qz, tx, ty, tz] = nums;
-        const q = new THREE.Quaternion(qx, qy, qz, qw);
-        const R = new THREE.Matrix4().makeRotationFromQuaternion(q);
-        const Rt = R.clone().transpose();
-        const C = new THREE.Vector3(tx, ty, tz)
-          .applyMatrix4(Rt)
-          .multiplyScalar(-1);
-        const qr = new THREE.Quaternion().setFromRotationMatrix(Rt);
-        qr.multiply(
-          new THREE.Quaternion().setFromAxisAngle(
-            new THREE.Vector3(1, 0, 0),
-            Math.PI,
-          ),
-        );
-        parsed.push({ imageName, position: C.clone(), quaternion: qr.clone() });
-      });
-      // Order by filename, not by however the lines appeared in images.txt —
-      // this is what makes the path trace the actual scan sequence instead
-      // of zig-zagging through the center (COLMAP's IMAGE_ID order != capture
-      // order).
-      parsed.sort((a, b) =>
-        naturalCompare(a.imageName || "", b.imageName || ""),
-      );
-      originalPosRef.current = parsed;
-      buildCameras(parsed);
-    };
-    reader.readAsText(cameraPositionsFile);
-  }, [cameraPositionsFile, uploadedCameraMatrix, buildCameras, cleanupAll]);
+  // useEffect(() => {
+  //   if (!cameraPositionsFile) {
+  //     cleanupAll();
+  //     originalPosRef.current = [];
+  //     return;
+  //   }
+  //   // An uploaded Matrix File (.json) for this batch is baked straight into
+  //   // the camera positions, same as the manual "Upload Camera Matrix" flow.
+  //   if (uploadedCameraMatrix) {
+  //     matrixRef.current = uploadedCameraMatrix;
+  //     matrixAppliedRef.current = true;
+  //   } else {
+  //     matrixAppliedRef.current = false;
+  //   }
+  //   const reader = new FileReader();
+  //   reader.onload = (e) => {
+  //     const parsed = [];
+  //     e.target.result.split("\n").forEach((line) => {
+  //       if (!line.trim() || line.startsWith("#")) return;
+  //       const p = line.trim().split(/\s+/);
+  //       if (p.length < 10) return;
+  //       const imageName = p[9];
+  //       const nums = [p[1], p[2], p[3], p[4], p[5], p[6], p[7]].map(Number);
+  //       if (nums.some(isNaN)) return;
+  //       const [qw, qx, qy, qz, tx, ty, tz] = nums;
+  //       const q = new THREE.Quaternion(qx, qy, qz, qw);
+  //       const R = new THREE.Matrix4().makeRotationFromQuaternion(q);
+  //       const Rt = R.clone().transpose();
+  //       const C = new THREE.Vector3(tx, ty, tz)
+  //         .applyMatrix4(Rt)
+  //         .multiplyScalar(-1);
+  //       const qr = new THREE.Quaternion().setFromRotationMatrix(Rt);
+  //       qr.multiply(
+  //         new THREE.Quaternion().setFromAxisAngle(
+  //           new THREE.Vector3(1, 0, 0),
+  //           Math.PI,
+  //         ),
+  //       );
+  //       parsed.push({ imageName, position: C.clone(), quaternion: qr.clone() });
+  //     });
+  //     // Order by filename, not by however the lines appeared in images.txt —
+  //     // this is what makes the path trace the actual scan sequence instead
+  //     // of zig-zagging through the center (COLMAP's IMAGE_ID order != capture
+  //     // order).
+  //     parsed.sort((a, b) =>
+  //       naturalCompare(a.imageName || "", b.imageName || ""),
+  //     );
+  //     originalPosRef.current = parsed;
+  //     buildCameras(parsed);
+  //   };
+  //   reader.readAsText(cameraPositionsFile);
+  // }, [cameraPositionsFile, uploadedCameraMatrix, buildCameras, cleanupAll]);
 
   // useEffect(() => {
   //   if (!cameraPositionsFile) {
@@ -703,6 +692,88 @@ export default function useCameraSystem(sceneData, modelData, props) {
 
   //   reader.readAsText(cameraPositionsFile);
   // }, [cameraPositionsFile, buildCameras, cleanupAll]);
+
+  // ── PARSE images.txt ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!cameraPositionsFile) {
+      cleanupAll();
+      originalPosRef.current = [];
+      return;
+    }
+    // An uploaded Matrix File (.json) for this batch is baked straight into
+    // the camera positions, same as the manual "Upload Camera Matrix" flow.
+    if (uploadedCameraMatrix) {
+      matrixRef.current = uploadedCameraMatrix;
+      matrixAppliedRef.current = true;
+    } else {
+      matrixAppliedRef.current = false;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const parsed = [];
+      // COLMAP images.txt alternates two lines per image: a pose line
+      // (IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME) followed by
+      // that image's POINTS2D line (a long run of X Y POINT3D_ID triples).
+      // We only want pose lines — the POINTS2D line has no NAME field, and
+      // its numeric columns were previously being misread as a bogus extra
+      // "camera" with a garbage decimal ID. This flag tracks which kind of
+      // line we expect next so POINTS2D lines are always skipped.
+      let expectingPose = true;
+
+      e.target.result.split("\n").forEach((line) => {
+        if (!line.trim() || line.startsWith("#")) return;
+
+        if (!expectingPose) {
+          // This is the POINTS2D line for the previous image — skip it and
+          // resume expecting a pose line on the next data line.
+          expectingPose = true;
+          return;
+        }
+
+        const p = line.trim().split(/\s+/);
+        if (p.length < 10) return; // malformed pose line, keep waiting
+
+        const imageName = p[9];
+        // Sanity check: a real NAME token looks like a filename (contains a
+        // letter, or ends in a .ext). A bare float (e.g. "533.2426743...")
+        // means we've desynced onto a POINTS2D line — skip without
+        // flipping expectingPose so we don't cascade the desync further.
+        if (!/[A-Za-z]|\.[A-Za-z0-9]+$/.test(imageName)) return;
+
+        const nums = [p[1], p[2], p[3], p[4], p[5], p[6], p[7]].map(Number);
+        if (nums.some(isNaN)) return;
+        const [qw, qx, qy, qz, tx, ty, tz] = nums;
+        const q = new THREE.Quaternion(qx, qy, qz, qw);
+        const R = new THREE.Matrix4().makeRotationFromQuaternion(q);
+        const Rt = R.clone().transpose();
+        const C = new THREE.Vector3(tx, ty, tz)
+          .applyMatrix4(Rt)
+          .multiplyScalar(-1);
+        const qr = new THREE.Quaternion().setFromRotationMatrix(Rt);
+        qr.multiply(
+          new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(1, 0, 0),
+            Math.PI,
+          ),
+        );
+        parsed.push({ imageName, position: C.clone(), quaternion: qr.clone() });
+
+        // Successfully consumed a pose line — the very next non-comment
+        // line is its POINTS2D line, so skip that one.
+        expectingPose = false;
+      });
+      // Order by filename, not by however the lines appeared in images.txt —
+      // this is what makes the path trace the actual scan sequence instead
+      // of zig-zagging through the center (COLMAP's IMAGE_ID order != capture
+      // order).
+      parsed.sort((a, b) =>
+        naturalCompare(a.imageName || "", b.imageName || ""),
+      );
+      originalPosRef.current = parsed;
+      buildCameras(parsed);
+    };
+    reader.readAsText(cameraPositionsFile);
+  }, [cameraPositionsFile, uploadedCameraMatrix, buildCameras, cleanupAll]);
   // ── show/hide all markers ─────────────────────────────────────────────────
   useEffect(() => {
     cameraMarkersRef.current.forEach((m) => {
@@ -962,9 +1033,18 @@ export default function useCameraSystem(sceneData, modelData, props) {
   // dependency) and flip the actual line's visibility on toggle.
   useEffect(() => {
     cameraPathVisibleRef.current = cameraPathVisible;
-    if (pathLineRef.current) pathLineRef.current.visible = cameraPathVisible;
-    if (pathDotsRef.current) pathDotsRef.current.visible = cameraPathVisible;
-  }, [cameraPathVisible]);
+   // Camera path = red dots only
+    if (pathDotsRef.current) {
+      pathDotsRef.current.visible = cameraPathVisible;
+    }
+
+    // Make normal camera cones disappear when path is active
+    cameraMarkersRef.current.forEach((marker) => {
+      if (marker) {
+        marker.visible = !cameraPathVisible && showCameras !== false;
+      }
+    });
+  }, [cameraPathVisible, showCameras]);
 
   const toggleCameraPath = useCallback(() => {
     setCameraPathVisible((v) => !v);
@@ -981,6 +1061,74 @@ export default function useCameraSystem(sceneData, modelData, props) {
       prev.map((c) => (c.name === name ? { ...c, visible: !c.visible } : c)),
     );
   }, []);
+
+  // ── NEW: color camera dots from the Camera Data table values ──────────────
+  // Also swaps each marker's shape from the cone to a round dot (sphere).
+  const colorCamerasByColumn = useCallback(
+    (tableData, columnKey) => {
+      if (!columnKey) return;
+
+      const entries = camerasRef.current
+        .map((cam) => {
+          const camId = cam.userData.imageName;
+          const val = parseFloat(tableData?.[camId]?.[columnKey]);
+          return { cam, val };
+        })
+        .filter((e) => Number.isFinite(e.val));
+
+      if (!entries.length) return;
+
+      const values = entries.map((e) => e.val);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min || 1;
+
+      entries.forEach(({ cam, val }) => {
+        const marker = cameraMarkersRef.current[cam.userData.index];
+        if (!marker) return;
+
+        // Save the original cone geometry once, so Reset can restore it exactly.
+        if (!marker.userData.originalGeometry) {
+          marker.userData.originalGeometry = marker.geometry;
+        }
+        // Build (once) and reuse a sphere geometry for this marker.
+        if (!marker.userData.dotGeometry) {
+          marker.userData.dotGeometry = new THREE.SphereGeometry(0.35, 16, 16);
+        }
+        marker.geometry = marker.userData.dotGeometry;
+
+        const hex = viridisColor((val - min) / range);
+        marker.material.color.set(hex);
+        marker.userData.baseColor = new THREE.Color(hex).getHex();
+        marker.userData.hasDataColor = true;
+      });
+
+      bump();
+    },
+    [bump],
+  );
+
+  // ── NEW: revert dots back to the default black idle cones ─────────────────
+  const resetCameraColors = useCallback(() => {
+    cameraMarkersRef.current.forEach((marker, idx) => {
+      const cam = camerasRef.current[idx];
+      if (!marker || !cam) return;
+
+      if (marker.userData.originalGeometry) {
+        marker.geometry = marker.userData.originalGeometry;
+      }
+
+      const semanticColor = cam.userData.isManual
+        ? 0x06b6d4
+        : cam.userData.hasImage
+          ? 0x8b5cf6
+          : 0xf97316;
+      marker.material.color.setHex(0x000000);
+      marker.userData.baseColor = semanticColor;
+      marker.userData.hasDataColor = false;
+    });
+    bump();
+  }, [bump]);
 
   // ── MANUAL IMAGE UPLOAD ───────────────────────────────────────────────────
   const handleManualCameraImageUpload = useCallback(
@@ -1140,6 +1288,8 @@ export default function useCameraSystem(sceneData, modelData, props) {
     addCameraManually,
     deleteCamera,
     toggleCameraVisibility,
+    colorCamerasByColumn,
+    resetCameraColors,
     handleManualCameraImageUpload,
     manualCameras,
     allCameras: camerasRef.current, // ← NEW: real posed cameras (DJI batch + manual), THREE.PerspectiveCamera objects with world transforms already applied

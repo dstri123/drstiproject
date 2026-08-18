@@ -252,6 +252,11 @@ export default function useSceneSetup(mountRef) {
 
       const width = mountRef.current.clientWidth;
       const height = mountRef.current.clientHeight;
+      // Skip when the viewer is hidden (e.g. an ancestor set to
+      // display:none while navigating to another page but keeping this
+      // mounted) — 0x0 would set camera.aspect to NaN, corrupting the
+      // projection matrix until another resize happens to fix it.
+      if (!width || !height) return;
 
       camera.aspect = width / height;
       camera.updateProjectionMatrix();

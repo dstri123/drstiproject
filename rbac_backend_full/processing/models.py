@@ -283,8 +283,9 @@ class ProgressElement(models.Model):
     element_type = models.CharField(max_length=80)  # e.g. IFCDOOR
     category = models.CharField(max_length=40, blank=True)
     name = models.CharField(max_length=255, blank=True)
-    bim_area = models.FloatField(default=0.0)        # m^2
-    overlap_area = models.FloatField(default=0.0)    # m^2
+    bim_volume = models.FloatField(default=0.0)       # m^3
+    bim_points = models.IntegerField(default=0)       # max possible PC points (from volume)
+    overlap_points = models.IntegerField(default=0)   # actual overlapping PC points
     completion = models.FloatField(default=0.0)      # 0..100
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
 
@@ -323,6 +324,18 @@ class AlignmentPair(models.Model):
     relative_transform = models.JSONField(null=True, blank=True)  # optional 4x4
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    # Live overlap snapshot from the viewer's own voxel-hash "🟢 Overlapping
+    # Elements" check ("Send Overlap to Progress Assessment"). Progress
+    # Assessment prefers these browser-verified per-element point counts over
+    # its own server-side point-cloud-vs-BIM matching, since the latter
+    # depends on bim/pc `transform` fields being pixel-accurate, while this
+    # snapshot reflects whatever alignment the user actually saw overlapping
+    # on screen.
+    bim_element_count = models.IntegerField(null=True, blank=True)
+    overlap_element_count = models.IntegerField(null=True, blank=True)
+    overlap_snapshot = models.JSONField(null=True, blank=True)  # {express_id(str): count}
+    overlap_snapshot_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]

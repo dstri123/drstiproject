@@ -548,6 +548,10 @@ function CompareScene({ uploadsByDate }) {
       if (!mountRef.current) return;
       const w = mountRef.current.clientWidth;
       const h = mountRef.current.clientHeight;
+      // Skip when hidden (e.g. an ancestor set to display:none while
+      // navigating to another page but keeping this mounted) — 0x0 would
+      // set camera.aspect to NaN, corrupting the projection matrix.
+      if (!w || !h) return;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
@@ -1334,11 +1338,16 @@ function overlayLabel(side, color) {
 }
 
 
-export default function AnalyticsPage() {
+export default function AnalyticsPage({ routeParam: routeParamProp } = {}) {
   // Same route-param format as the Viewer (`${id}_${name}`) — reuse its helper
   // so Analytics resolves to the same project id, and therefore the same
   // upload dates shown on Project → 3D Data.
-  const { slug: routeParam } = useParams();
+  // Accepts routeParam as a prop (from PersistentWorkspace, which keeps this
+  // page mounted across navigation to the Viewer/Progress) — falls back to
+  // the route param so this still works if ever rendered directly by a
+  // matched <Route>.
+  const params = useParams();
+  const routeParam = routeParamProp ?? params.slug;
   const projectId = getProjectIdFromSlug(routeParam);
 
   const [projectName, setProjectName] = useState("");
@@ -1415,6 +1424,7 @@ export default function AnalyticsPage() {
           activePanel={activePanel}
           onSelectPanel={handleSelectPanel}
           role={role}
+          projectSlug={routeParam}
         />
 
         {activePanel && (
