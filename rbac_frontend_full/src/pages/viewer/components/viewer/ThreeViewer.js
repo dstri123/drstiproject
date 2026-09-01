@@ -124,7 +124,10 @@ function ThreeViewer({
   const mountRef = useRef();
   const mapMeshRef = useRef(null);
   const sectionPlaneRef = useRef(null);
-  const [geoMapOpen, setGeoMapOpen] = useState(false);
+  // Only one right-rail panel can be open at a time. Opening one closes
+  // whichever other panel was open (matches the left IconToolbar's behavior).
+  const [activePanel, setActivePanel] = useState(null); // 'rotate' | 'sectionBox' | 'cameraTable' | 'geoMap' | null
+  const geoMapOpen = activePanel === "geoMap";
   const [geoLocation, setGeoLocation] = useState({
     latitude: "12.9716",
     longitude: "77.5946",
@@ -176,7 +179,7 @@ function ThreeViewer({
     props.initialFootprintArea,
   ]);
 
-  const [sectionBoxActive, setSectionBoxActive] = useState(false);
+  const sectionBoxActive = activePanel === "sectionBox";
 
   const sceneData = useSceneSetup(mountRef);
 
@@ -484,25 +487,9 @@ function ThreeViewer({
     },
   };
 
-  // Toggle the section box (blue crop box + X/Y/Z sliders). Shared by the
-  // on-canvas "SB" button and the sidebar "Enable/Disable Section Box" button
-  // (which calls window.toggleSectionBox).
-  const toggleSectionBox = useCallback(() => {
-    const mgr = sectionManagerRef.current;
-    if (!mgr) return;
-    setSectionBoxActive((active) => {
-      if (active) mgr.disable();
-      else mgr.enable();
-      return !active;
-    });
-  }, []);
-
-  useEffect(() => {
-    window.toggleSectionBox = toggleSectionBox;
-    return () => {
-      delete window.toggleSectionBox;
-    };
-  }, [toggleSectionBox]);
+  // togglePanel/toggleSectionBox are defined further below (after the camera
+  // system hook is destructured, since togglePanel also drives the camera
+  // path toggle) — see the "right-rail panel exclusivity" block.
 
   useEffect(() => {
     props.onSectionBoxChange?.({ enabled: sectionBoxActive, offset: 0 });
@@ -822,11 +809,9 @@ function ThreeViewer({
 
   // ── Grid toggle ────────────────────────────────────────────────────────────
   // Hidden by default (incl. during load) — the user turns it on via the grid
-  // button when they want it.
-  const [gridVisible, setGridVisible] = useState(false);
-  const toggleGrid = useCallback(() => {
-    setGridVisible((v) => !v);
-  }, []);
+  // button when they want it. Derived from activePanel so it shares the
+  // right-rail's single-panel-at-a-time behavior (see togglePanel below).
+  const gridVisible = activePanel === "grid";
 
   // Single source of truth for grid + axes visibility: shown only when the grid
   // toggle is on AND we're not in geo mode (where the map ground replaces it).
@@ -899,7 +884,7 @@ function ThreeViewer({
   // so each model can be uprighted/pre-aligned individually before point
   // picking. The rotation is baked into the object's transform, which keeps
   // the picking + Kabsch alignment pipeline and Save Position consistent.
-  const [rotatePanelOpen, setRotatePanelOpen] = useState(false);
+  const rotatePanelOpen = activePanel === "rotate";
   // Per-model opacity (keyed by panel label). 1 = fully opaque.
   const [opacity, setOpacity] = useState({ "BIM Model": 1, "Point Cloud": 1 });
   const changeOpacity = useCallback(
@@ -911,7 +896,7 @@ function ThreeViewer({
   );
 
   // ── Camera data table (Camera ID + user-defined columns) ─────────────────
-  const [cameraTableOpen, setCameraTableOpen] = useState(false);
+  const cameraTableOpen = activePanel === "cameraTable";
   // Extra columns beyond "Camera ID", e.g. ["Notes", "Status"]
   const [cameraTableColumns, setCameraTableColumns] = useState([]);
   // { [cameraId]: { [columnName]: value } }
@@ -1054,6 +1039,43 @@ function ThreeViewer({
     colorCamerasByColumn,
     resetCameraColors,
   } = cameraData;
+
+  // ── Right-rail panel exclusivity ─────────────────────────────────────────
+  // Every toggleable icon in the right rail (adjust models, section box,
+  // grid, camera path, camera data table, place on map) shares the single
+  // `activePanel` state: opening one closes whichever other one was open.
+  // Most of them (rotate/grid/cameraTable/geoMap) are pure derived booleans
+  // with no side effect of their own, but section box drives the 3D scene's
+  // crop-box manager and camera path drives useCameraSystem's own boolean
+  // state, so entering/leaving those panels needs an imperative nudge.
+  const togglePanel = useCallback(
+    (panel) => {
+      if (panel === "sectionBox" && !sectionManagerRef.current) return;
+      setActivePanel((current) => {
+        if (current === "sectionBox") sectionManagerRef.current.disable();
+        if (current === "cameraPath") toggleCameraPath();
+        if (current === panel) return null;
+        if (panel === "sectionBox") sectionManagerRef.current.enable();
+        if (panel === "cameraPath") toggleCameraPath();
+        return panel;
+      });
+    },
+    [toggleCameraPath],
+  );
+
+  // Toggle the section box (blue crop box + X/Y/Z sliders). Shared by the
+  // on-canvas "SB" button and the sidebar "Enable/Disable Section Box" button
+  // (which calls window.toggleSectionBox).
+  const toggleSectionBox = useCallback(() => {
+    togglePanel("sectionBox");
+  }, [togglePanel]);
+
+  useEffect(() => {
+    window.toggleSectionBox = toggleSectionBox;
+    return () => {
+      delete window.toggleSectionBox;
+    };
+  }, [toggleSectionBox]);
 
   // ← add this right here
   const cameraIds = (allCameras || [])
@@ -1361,7 +1383,7 @@ function ThreeViewer({
           active={rotatePanelOpen}
           onClick={(e) => {
             e.stopPropagation();
-            setRotatePanelOpen((open) => !open);
+            togglePanel("rotate");
           }}
         />
         <FlatToolbarButton
@@ -1409,7 +1431,7 @@ function ThreeViewer({
           active={gridVisible}
           onClick={(e) => {
             e.stopPropagation();
-            toggleGrid();
+            togglePanel("grid");
           }}
         />
         <FlatToolbarButton
@@ -1420,7 +1442,7 @@ function ThreeViewer({
           active={cameraPathVisible}
           onClick={(e) => {
             e.stopPropagation();
-            toggleCameraPath();
+            togglePanel("cameraPath");
           }}
         />
 
@@ -1430,10 +1452,7 @@ function ThreeViewer({
           active={cameraTableOpen}
           onClick={(e) => {
             e.stopPropagation();
-            setCameraTableOpen((open) => {
-              console.log("cameraTableOpen ->", !open);
-              return !open;
-            });
+            togglePanel("cameraTable");
           }}
         />
 
@@ -1446,7 +1465,7 @@ function ThreeViewer({
           active={geoMapOpen}
           onClick={(event) => {
             event.stopPropagation();
-            setGeoMapOpen((open) => !open);
+            togglePanel("geoMap");
           }}
         />
         {onSavePosition && (
@@ -1474,8 +1493,8 @@ function ThreeViewer({
           <div
             style={{
               position: "absolute",
-              top: 16,
-              right: 68,
+              // top: 16,
+              right: 44,
               zIndex: 9999,
               pointerEvents: "auto",
               width: 260,
@@ -1789,8 +1808,8 @@ function ThreeViewer({
           <div
             style={{
               position: "absolute",
-              top: 16,
-              right: 68,
+              // top: 16,
+              right: 44,
               zIndex: 9999,
               pointerEvents: "auto",
               width: 360,
@@ -2048,8 +2067,8 @@ function ThreeViewer({
         <div
           style={{
             position: "absolute",
-            top: 16,
-            right: 68,
+            // top: 2,
+            right: 44,
             zIndex: 9999,
             width: 270,
             padding: 14,
