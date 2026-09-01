@@ -1,9 +1,9 @@
 import React, { useRef, useEffect } from "react";
 import * as THREE from "three";
 
-const SIZE = 120;
+const SIZE = 84;
 const CENTER = SIZE / 2;
-const AXIS_LEN = 38;
+const AXIS_LEN = 27;
 
 const AXES = [
   { name: "X", dir: [1, 0, 0], color: "#ef4444" },
@@ -56,7 +56,7 @@ function getHitAxis(mx, my, camera) {
       );
       const tx = CENTER + v.x * AXIS_LEN;
       const ty = CENTER - v.y * AXIS_LEN;
-      if (Math.hypot(mx - tx, my - ty) < 12) {
+      if (Math.hypot(mx - tx, my - ty) < 9) {
         return {
           name: ax.name,
           dir: ax.dir,
@@ -91,7 +91,7 @@ export default function BlenderViewportGizmo({ cameraRef, controlsRef }) {
 
       // Soft circular backing.
       ctx.beginPath();
-      ctx.arc(CENTER, CENTER, AXIS_LEN + 16, 0, Math.PI * 2);
+      ctx.arc(CENTER, CENTER, AXIS_LEN + 12, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(255,255,255,0.55)";
       ctx.fill();
       ctx.lineWidth = 1;
@@ -152,7 +152,7 @@ export default function BlenderViewportGizmo({ cameraRef, controlsRef }) {
             const uy = dy / len;
             const px = -uy;
             const py = ux;
-            const h = isHov ? 10 : 8;
+            const h = isHov ? 8 : 6;
             ctx.beginPath();
             ctx.moveTo(tx + ux * h, ty + uy * h);
             ctx.lineTo(tx - ux * h * 0.3 + px * h * 0.7, ty - uy * h * 0.3 + py * h * 0.7);
@@ -163,13 +163,13 @@ export default function BlenderViewportGizmo({ cameraRef, controlsRef }) {
             // Axis letter (X / Y / Z) just beyond the arrowhead.
             ctx.globalAlpha = Math.max(alpha, 0.7);
             ctx.fillStyle = p.color;
-            ctx.font = `bold ${isHov ? 12 : 11}px -apple-system, BlinkMacSystemFont, sans-serif`;
+            ctx.font = `bold ${isHov ? 10 : 9}px -apple-system, BlinkMacSystemFont, sans-serif`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillText(p.label, tx + ux * (h + 7), ty + uy * (h + 7));
           } else {
             // Negative direction: small diamond handle (hollow until hover)
-            const r = isHov ? 7 : 5.5;
+            const r = isHov ? 5.5 : 4.5;
             ctx.beginPath();
             ctx.moveTo(tx, ty - r);
             ctx.lineTo(tx + r, ty);
@@ -248,12 +248,12 @@ export default function BlenderViewportGizmo({ cameraRef, controlsRef }) {
       width={SIZE}
       height={SIZE}
       style={{
-        // Bottom-right corner so it never sits under the top-right toolbar
-        // (which would hide it and block its clicks). Click an axis tip
-        // (X/Y/Z, + or -) to snap the view to look down that axis.
+        // Bottom-right corner, clear of the docked right-hand toolbar rail
+        // (44px wide) so it never sits under it or blocks its clicks. Click
+        // an axis tip (X/Y/Z, + or -) to snap the view to look down that axis.
         position: "absolute",
         bottom: 16,
-        right: 16,
+        right: 56,
         zIndex: 30,
         pointerEvents: "all",
       }}

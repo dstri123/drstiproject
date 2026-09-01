@@ -35,6 +35,7 @@ export default function useSceneSetup(mountRef) {
   const gridRef = useRef(null);
   const axesRef = useRef(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [sceneError, setSceneError] = useState(null);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -53,7 +54,24 @@ export default function useSceneSetup(mountRef) {
     camera.position.set(10, 10, 10);
 
     // ---------- RENDERER ----------
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // The browser can refuse to hand out a WebGL context (hardware
+    // acceleration disabled, GPU driver crashed, running in a VM/RDP
+    // session without GPU passthrough, or the per-page context limit
+    // already exhausted). There's no ErrorBoundary in this app, so letting
+    // that exception escape this passive effect would unmount the entire
+    // React tree — surface it as scene state instead.
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch (err) {
+      console.error("useSceneSetup: WebGL context creation failed", err);
+      setSceneError(
+        "Couldn't start the 3D viewer — your browser or GPU didn't allow a WebGL context. " +
+          "Try enabling hardware acceleration in your browser settings, updating your GPU driver, " +
+          "or restarting the browser, then reload this page.",
+      );
+      return;
+    }
     renderer.setSize(
       mountRef.current.clientWidth,
       mountRef.current.clientHeight,
@@ -327,5 +345,6 @@ export default function useSceneSetup(mountRef) {
     gridRef,
     axesRef,
     sceneReady,
+    sceneError,
   };
 }
