@@ -40,39 +40,58 @@ const OSM_TILE_PROXY =
   API.defaults.baseURL.replace(/\/$/, "") +
   "/processing/osm-tile/{z}/{x}/{y}.png";
 
-// A single round icon button in the right-hand viewer toolbar. Centralises the
-// styling so every button looks/acts the same; `active` highlights toggles.
-function ToolbarButton({
-  icon,
-  label,
-  onClick,
-  active = false,
-  disabled = false,
-}) {
+// A plain, borderless icon button matching the left IconToolbar's flat style
+// (no card background/shadow) — used for the Adjust Model / Section Box
+// toggles so they read as lightweight, inline tools rather than floating
+// cards.
+function FlatToolbarButton({ icon, label, onClick, active = false }) {
+  const [hovered, setHovered] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      style={{
-        width: 42,
-        height: 42,
-        borderRadius: 12,
-        border: "1px solid rgba(15, 23, 42, 0.16)",
-        background: active ? "#1d4ed8" : "#ffffff",
-        color: active ? "#ffffff" : "#111827",
-        display: "grid",
-        placeItems: "center",
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        boxShadow: "0 12px 30px rgba(15, 23, 42, 0.08)",
-        pointerEvents: "auto",
-      }}
-    >
-      {icon}
-    </button>
+    <div style={{ position: "relative", width: "100%" }}>
+      {active && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 2,
+            height: 18,
+            background: "#3b82f6",
+            borderRadius: "0 2px 2px 0",
+          }}
+        />
+      )}
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        title={label}
+        aria-label={label}
+        style={{
+          width: "100%",
+          height: 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: active
+            ? "rgba(59,130,246,0.07)"
+            : hovered
+              ? "rgba(0,0,0,0.03)"
+              : "transparent",
+          border: "none",
+          cursor: "pointer",
+          color: active ? "#3b82f6" : hovered ? "#4b5563" : "#c4cad4",
+          transition: "color 0.12s ease, background 0.12s ease",
+          padding: 0,
+          borderRadius: 0,
+          pointerEvents: "auto",
+        }}
+      >
+        {icon}
+      </button>
+    </div>
   );
 }
 
@@ -1130,6 +1149,40 @@ function ThreeViewer({
         style={{ position: "absolute", inset: 0, zIndex: 1, cursor: "grab" }}
       />
 
+      {sceneData.sceneError && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 30,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+            background: "#F3F4F6",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 440,
+              textAlign: "center",
+              padding: "20px 24px",
+              borderRadius: 12,
+              background: "#fff",
+              border: "1px solid rgba(148,163,184,0.4)",
+              boxShadow: "0 12px 30px rgba(15, 23, 42, 0.12)",
+              fontSize: 13,
+              color: "#0f172a",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              3D viewer unavailable
+            </div>
+            {sceneData.sceneError}
+          </div>
+        </div>
+      )}
+
       {(modelData.isLoadingBim || modelData.isLoadingPc) &&
         !modelData.isConvertingIfc && (
           <div
@@ -1269,26 +1322,41 @@ function ThreeViewer({
       <div
         style={{
           position: "absolute",
-          right: 16,
-          top: 16,
+          top: 0,
+          right: 0,
+          bottom: 0,
           zIndex: 9999,
           display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-end",
-          gap: 10,
           pointerEvents: "auto",
-          // Keep the toolbar + its expandable panels within the viewport on
-          // desktop — scroll instead of overflowing/cutting off the bottom.
-          maxHeight: "calc(100vh - 32px)",
-          overflowY: "auto",
-          overflowX: "hidden",
-          paddingRight: 4,
-          paddingBottom: 8,
         }}
       >
-        {/* Group: model adjust + section box */}
-        <ToolbarButton
-          icon={<SlidersHorizontal size={18} />}
+        {/* Solid white rail behind the flat icon buttons — flush against the
+            top-right corner and full height, matching the left IconToolbar's
+            background exactly (color, border, spacing, alignment). */}
+        <div
+          style={{
+            width: 44,
+            height: "100%",
+            background: "#ffffff",
+            borderLeft: "1px solid #e5e7eb",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            paddingTop: 6,
+            paddingBottom: 6,
+            gap: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+          }}
+        >
+          {/* Group: model adjust + section box */}
+        <FlatToolbarButton
+          icon={
+            <SlidersHorizontal
+              size={16}
+              strokeWidth={rotatePanelOpen ? 2.2 : 1.8}
+            />
+          }
           label="Adjust models (rotate / opacity / scale)"
           active={rotatePanelOpen}
           onClick={(e) => {
@@ -1296,8 +1364,10 @@ function ThreeViewer({
             setRotatePanelOpen((open) => !open);
           }}
         />
-        <ToolbarButton
-          icon={<Scissors size={18} />}
+        <FlatToolbarButton
+          icon={
+            <Scissors size={16} strokeWidth={sectionBoxActive ? 2.2 : 1.8} />
+          }
           label="Section box — crop with the blue box / X·Y·Z sliders"
           active={sectionBoxActive}
           onClick={(e) => {
@@ -1309,32 +1379,32 @@ function ThreeViewer({
         <ToolbarDivider />
 
         {/* Group: camera navigation */}
-        <ToolbarButton
-          icon={<ZoomIn size={18} />}
+        <FlatToolbarButton
+          icon={<ZoomIn size={16} strokeWidth={1.8} />}
           label="Zoom in"
           onClick={(e) => {
             e.stopPropagation();
             zoomBy(0.7);
           }}
         />
-        <ToolbarButton
-          icon={<ZoomOut size={18} />}
+        <FlatToolbarButton
+          icon={<ZoomOut size={16} strokeWidth={1.8} />}
           label="Zoom out"
           onClick={(e) => {
             e.stopPropagation();
             zoomBy(1.43);
           }}
         />
-        <ToolbarButton
-          icon={<Maximize2 size={18} />}
+        <FlatToolbarButton
+          icon={<Maximize2 size={16} strokeWidth={1.8} />}
           label="Fit models in view"
           onClick={(e) => {
             e.stopPropagation();
             modelData.fitAll?.();
           }}
         />
-        <ToolbarButton
-          icon={<Grid3x3 size={18} />}
+        <FlatToolbarButton
+          icon={<Grid3x3 size={16} strokeWidth={gridVisible ? 2.2 : 1.8} />}
           label={gridVisible ? "Hide grid" : "Show grid"}
           active={gridVisible}
           onClick={(e) => {
@@ -1342,8 +1412,10 @@ function ThreeViewer({
             toggleGrid();
           }}
         />
-        <ToolbarButton
-          icon={<Route size={18} />}
+        <FlatToolbarButton
+          icon={
+            <Route size={16} strokeWidth={cameraPathVisible ? 2.2 : 1.8} />
+          }
           label={cameraPathVisible ? "Hide camera path" : "Show camera path"}
           active={cameraPathVisible}
           onClick={(e) => {
@@ -1352,8 +1424,8 @@ function ThreeViewer({
           }}
         />
 
-        <ToolbarButton
-          icon={<Table2 size={18} />}
+        <FlatToolbarButton
+          icon={<Table2 size={16} strokeWidth={cameraTableOpen ? 2.2 : 1.8} />}
           label="Camera data table"
           active={cameraTableOpen}
           onClick={(e) => {
@@ -1368,8 +1440,8 @@ function ThreeViewer({
         <ToolbarDivider />
 
         {/* Group: place on map + save */}
-        <ToolbarButton
-          icon={<MapPin size={18} />}
+        <FlatToolbarButton
+          icon={<MapPin size={16} strokeWidth={geoMapOpen ? 2.2 : 1.8} />}
           label="Place models on a map location"
           active={geoMapOpen}
           onClick={(event) => {
@@ -1378,8 +1450,13 @@ function ThreeViewer({
           }}
         />
         {onSavePosition && (
-          <ToolbarButton
-            icon={<Save size={18} />}
+          <FlatToolbarButton
+            icon={
+              <Save
+                size={16}
+                strokeWidth={saveStatus === "saving" ? 2.2 : 1.8}
+              />
+            }
             label="Save current position & orientation"
             active={saveStatus === "saving"}
             onClick={(event) => {
@@ -1389,273 +1466,18 @@ function ThreeViewer({
             }}
           />
         )}
+        </div>
 
-        {rotatePanelOpen && (
-          <div
-            style={{
-              width: 270,
-              padding: 14,
-              borderRadius: 16,
-              background: "rgba(255,255,255,0.96)",
-              border: "1px solid rgba(148,163,184,0.32)",
-              boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
-              color: "#0f172a",
-            }}
-          >
-            {[
-              { label: "BIM Model", model: modelData.bimModel },
-              { label: "Point Cloud", model: modelData.pcModel },
-            ].map(({ label, model }) => (
-              <div key={label} style={{ marginBottom: 12 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 6,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: model ? "#0f172a" : "#9ca3af",
-                    }}
-                  >
-                    {label} {!model && "(not loaded)"}
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!model}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selectModel(model);
-                    }}
-                    title={`Select ${label} for direct drag rotate/move`}
-                    style={{
-                      padding: "3px 8px",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      borderRadius: 6,
-                      border: "1px solid #cbd5e1",
-                      background:
-                        model && activeSelectedObject === model
-                          ? "#1d4ed8"
-                          : model
-                            ? "#f8fafc"
-                            : "#f1f5f9",
-                      color:
-                        model && activeSelectedObject === model
-                          ? "#ffffff"
-                          : model
-                            ? "#0f172a"
-                            : "#cbd5e1",
-                      cursor: model ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    {activeSelectedObject === model ? "Selected" : "Select"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!model}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      modelData.resetTransform?.(model);
-                      setScaleFactor((prev) => ({ ...prev, [label]: 1 }));
-                      setRotation((prev) => ({
-                        ...prev,
-                        [label]: { x: 0, y: 0, z: 0 },
-                      }));
-                    }}
-                    title={`Reset ${label} rotation/position/scale to its loaded placement`}
-                    style={{
-                      marginLeft: 6,
-                      padding: "3px 8px",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      borderRadius: 6,
-                      border: "1px solid #cbd5e1",
-                      background: model ? "#f8fafc" : "#f1f5f9",
-                      color: model ? "#0f172a" : "#cbd5e1",
-                      cursor: model ? "pointer" : "not-allowed",
-                    }}
-                  >
-                    Reset
-                  </button>
-                </div>
-                {["x", "y", "z"].map((axis) => {
-                  const axisColor =
-                    axis === "x"
-                      ? "#dc2626"
-                      : axis === "y"
-                        ? "#16a34a"
-                        : "#2563eb";
-                  const deg = rotation[label]?.[axis] ?? 0;
-                  return (
-                    <div
-                      key={axis}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 16,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: axisColor,
-                        }}
-                      >
-                        {axis.toUpperCase()}
-                      </span>
-                      <input
-                        type="range"
-                        min={-180}
-                        max={180}
-                        step={1}
-                        disabled={!model}
-                        value={deg}
-                        onChange={(e) =>
-                          changeRotation(
-                            label,
-                            model,
-                            axis,
-                            Number(e.target.value),
-                          )
-                        }
-                        style={{
-                          flex: 1,
-                          accentColor: axisColor,
-                          cursor: model ? "pointer" : "not-allowed",
-                        }}
-                      />
-                      <span
-                        style={{
-                          width: 40,
-                          textAlign: "right",
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: "#64748b",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {deg}°
-                      </span>
-                    </div>
-                  );
-                })}
-                {/* Opacity / transparency */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginTop: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 54,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: model ? "#0f172a" : "#cbd5e1",
-                    }}
-                  >
-                    Opacity
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    disabled={!model}
-                    value={opacity[label] ?? 1}
-                    onChange={(e) =>
-                      changeOpacity(label, model, Number(e.target.value))
-                    }
-                    style={{
-                      flex: 1,
-                      accentColor: "#2563eb",
-                      cursor: model ? "pointer" : "not-allowed",
-                    }}
-                  />
-                  <span
-                    style={{
-                      width: 34,
-                      textAlign: "right",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: "#64748b",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {Math.round((opacity[label] ?? 1) * 100)}%
-                  </span>
-                </div>
-                {/* Scale */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginTop: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 54,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: model ? "#0f172a" : "#cbd5e1",
-                    }}
-                  >
-                    Scale
-                  </span>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={4}
-                    step={0.05}
-                    disabled={!model}
-                    value={scaleFactor[label] ?? 1}
-                    onChange={(e) =>
-                      changeScale(label, model, Number(e.target.value))
-                    }
-                    style={{
-                      flex: 1,
-                      accentColor: "#16a34a",
-                      cursor: model ? "pointer" : "not-allowed",
-                    }}
-                  />
-                  <span
-                    style={{
-                      width: 34,
-                      textAlign: "right",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: "#64748b",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {(scaleFactor[label] ?? 1).toFixed(2)}×
-                  </span>
-                </div>
-              </div>
-            ))}
-            <div style={{ fontSize: 11, color: "#64748b" }}>
-              Rotations are baked into each model — use Save to persist. Click
-              "Select" (or click the model directly in the 3D view) to get
-              free-drag arrows/rings for fine rotation and positioning.
-            </div>
-          </div>
-        )}
+      </div>
 
         {geoMapOpen && (
           <div
             style={{
+              position: "absolute",
+              top: 16,
+              right: 68,
+              zIndex: 9999,
+              pointerEvents: "auto",
               width: 260,
               padding: 12,
               borderRadius: 16,
@@ -1966,6 +1788,11 @@ function ThreeViewer({
         {cameraTableOpen && (
           <div
             style={{
+              position: "absolute",
+              top: 16,
+              right: 68,
+              zIndex: 9999,
+              pointerEvents: "auto",
               width: 360,
               maxHeight: "min(70vh, 480px)",
               padding: 14,
@@ -2216,7 +2043,276 @@ function ThreeViewer({
             )}
           </div>
         )}
-      </div>
+
+      {rotatePanelOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 16,
+            right: 68,
+            zIndex: 9999,
+            width: 270,
+            padding: 14,
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.96)",
+            border: "1px solid rgba(148,163,184,0.32)",
+            boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
+            color: "#0f172a",
+            maxHeight: "calc(100vh - 32px)",
+            overflowY: "auto",
+            pointerEvents: "auto",
+          }}
+        >
+          {[
+            { label: "BIM Model", model: modelData.bimModel },
+            { label: "Point Cloud", model: modelData.pcModel },
+          ].map(({ label, model }) => (
+            <div key={label} style={{ marginBottom: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: model ? "#0f172a" : "#9ca3af",
+                  }}
+                >
+                  {label} {!model && "(not loaded)"}
+                </div>
+                <button
+                  type="button"
+                  disabled={!model}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    selectModel(model);
+                  }}
+                  title={`Select ${label} for direct drag rotate/move`}
+                  style={{
+                    padding: "3px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: "1px solid #cbd5e1",
+                    background:
+                      model && activeSelectedObject === model
+                        ? "#1d4ed8"
+                        : model
+                          ? "#f8fafc"
+                          : "#f1f5f9",
+                    color:
+                      model && activeSelectedObject === model
+                        ? "#ffffff"
+                        : model
+                          ? "#0f172a"
+                          : "#cbd5e1",
+                    cursor: model ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {activeSelectedObject === model ? "Selected" : "Select"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!model}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    modelData.resetTransform?.(model);
+                    setScaleFactor((prev) => ({ ...prev, [label]: 1 }));
+                    setRotation((prev) => ({
+                      ...prev,
+                      [label]: { x: 0, y: 0, z: 0 },
+                    }));
+                  }}
+                  title={`Reset ${label} rotation/position/scale to its loaded placement`}
+                  style={{
+                    marginLeft: 6,
+                    padding: "3px 8px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: "1px solid #cbd5e1",
+                    background: model ? "#f8fafc" : "#f1f5f9",
+                    color: model ? "#0f172a" : "#cbd5e1",
+                    cursor: model ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+              {["x", "y", "z"].map((axis) => {
+                const axisColor =
+                  axis === "x"
+                    ? "#dc2626"
+                    : axis === "y"
+                      ? "#16a34a"
+                      : "#2563eb";
+                const deg = rotation[label]?.[axis] ?? 0;
+                return (
+                  <div
+                    key={axis}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 16,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: axisColor,
+                      }}
+                    >
+                      {axis.toUpperCase()}
+                    </span>
+                    <input
+                      type="range"
+                      min={-180}
+                      max={180}
+                      step={1}
+                      disabled={!model}
+                      value={deg}
+                      onChange={(e) =>
+                        changeRotation(
+                          label,
+                          model,
+                          axis,
+                          Number(e.target.value),
+                        )
+                      }
+                      style={{
+                        flex: 1,
+                        accentColor: axisColor,
+                        cursor: model ? "pointer" : "not-allowed",
+                      }}
+                    />
+                    <span
+                      style={{
+                        width: 40,
+                        textAlign: "right",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#64748b",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {deg}°
+                    </span>
+                  </div>
+                );
+              })}
+              {/* Opacity / transparency */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <span
+                  style={{
+                    width: 54,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: model ? "#0f172a" : "#cbd5e1",
+                  }}
+                >
+                  Opacity
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  disabled={!model}
+                  value={opacity[label] ?? 1}
+                  onChange={(e) =>
+                    changeOpacity(label, model, Number(e.target.value))
+                  }
+                  style={{
+                    flex: 1,
+                    accentColor: "#2563eb",
+                    cursor: model ? "pointer" : "not-allowed",
+                  }}
+                />
+                <span
+                  style={{
+                    width: 34,
+                    textAlign: "right",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "#64748b",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {Math.round((opacity[label] ?? 1) * 100)}%
+                </span>
+              </div>
+              {/* Scale */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 6,
+                }}
+              >
+                <span
+                  style={{
+                    width: 54,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: model ? "#0f172a" : "#cbd5e1",
+                  }}
+                >
+                  Scale
+                </span>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={4}
+                  step={0.05}
+                  disabled={!model}
+                  value={scaleFactor[label] ?? 1}
+                  onChange={(e) =>
+                    changeScale(label, model, Number(e.target.value))
+                  }
+                  style={{
+                    flex: 1,
+                    accentColor: "#16a34a",
+                    cursor: model ? "pointer" : "not-allowed",
+                  }}
+                />
+                <span
+                  style={{
+                    width: 34,
+                    textAlign: "right",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "#64748b",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {(scaleFactor[label] ?? 1).toFixed(2)}×
+                </span>
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: "#64748b" }}>
+            Rotations are baked into each model — use Save to persist. Click
+            "Select" (or click the model directly in the 3D view) to get
+            free-drag arrows/rings for fine rotation and positioning.
+          </div>
+        </div>
+      )}
 
       {sectionBoxActive && <ClipBar {...clipData} />}
 

@@ -1,12 +1,12 @@
 import React, { useRef, useEffect } from "react";
 import * as THREE from "three";
 
-const SIZE = 120;
+const SIZE = 84;
 const C = SIZE / 2;
-const R_CARD = 46; // cardinal point length (N/E/S/W)
-const R_ORD = 30; // intercardinal length (NE/SE/SW/NW)
-const R_SEC = 22; // secondary 16-point tick length (NNE, etc.)
-const LABEL_R = 50;
+const R_CARD = 32; // cardinal point length (N/E/S/W)
+const R_ORD = 21; // intercardinal length (NE/SE/SW/NW)
+const R_SEC = 15; // secondary 16-point tick length (NNE, etc.)
+const LABEL_R = 35;
 
 // Real-world convention used by the geo placement code:
 //   +Z = North, +X = East, Y = up. The rose rotates with the camera heading
@@ -112,7 +112,7 @@ export default function CompassRing({ cameraRef }) {
       ctx.fill();
 
       // Cardinal labels
-      ctx.font = "bold 11px -apple-system, sans-serif";
+      ctx.font = "bold 9px -apple-system, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       for (const c of CARDINALS) {
@@ -136,10 +136,11 @@ export default function CompassRing({ cameraRef }) {
       width={SIZE}
       height={SIZE}
       style={{
-        // Sit just above the X/Y/Z navigation gizmo in the bottom-right.
+        // Sit just above the X/Y/Z navigation gizmo, clear of the docked
+        // right-hand toolbar rail (44px wide).
         position: "absolute",
-        bottom: 150,
-        right: 20,
+        bottom: 110,
+        right: 56,
         zIndex: 30,
         pointerEvents: "none",
       }}
