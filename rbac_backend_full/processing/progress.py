@@ -40,6 +40,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 logger = logging.getLogger(__name__)
+RNG = np.random.default_rng(42)
 
 # IFC type → friendly category. Every element with geometry is extracted and
 # categorized — nothing is filtered out and no category list is hardcoded
@@ -164,7 +165,7 @@ def read_ply_points(path, max_points=400000):
             ], axis=1)
 
     if len(pts) > max_points:
-        idx = np.random.choice(len(pts), max_points, replace=False)
+        idx = RNG.choice(len(pts), max_points, replace=False)
         pts = pts[idx]
     return pts
 
@@ -187,7 +188,7 @@ def read_las_points(path, max_points=400000):
         np.asarray(las.z, dtype=np.float64),
     ], axis=1)
     if len(pts) > max_points:
-        idx = np.random.choice(len(pts), max_points, replace=False)
+        idx = RNG.choice(len(pts), max_points, replace=False)
         pts = pts[idx]
     return pts
 
@@ -395,9 +396,9 @@ def sample_surface(verts, faces, n):
     if total <= 0:
         return verts
     probs = areas / total
-    tri = np.random.choice(len(faces), size=n, p=probs)
-    u = np.random.rand(n, 1)
-    w = np.random.rand(n, 1)
+    tri = RNG.choice(len(faces), size=n, p=probs)
+    u = RNG.random((n, 1))
+    w = RNG.random((n, 1))
     over = (u + w > 1).flatten()
     u[over] = 1 - u[over]
     w[over] = 1 - w[over]
@@ -415,7 +416,7 @@ def ransac_plane(points, iters=60, thresh=0.05):
     best_ratio = 0.0
     best_normal = None
     for _ in range(iters):
-        idx = np.random.choice(n, 3, replace=False)
+        idx = RNG.choice(n, 3, replace=False)
         p0, p1, p2 = points[idx]
         nrm = np.cross(p1 - p0, p2 - p0)
         ln = np.linalg.norm(nrm)
@@ -495,7 +496,7 @@ def _intrinsic_density(pc_points, threshold, cap=3000):
     n = len(pc_points)
     if n < 2:
         return 0.0
-    sample = pc_points if n <= cap else pc_points[np.random.choice(n, cap, replace=False)]
+    sample = pc_points if n <= cap else pc_points[RNG.choice(n, cap, replace=False)]
     tree = cKDTree(sample, balanced_tree=False, compact_nodes=False)
     return _probe_density(tree, sample, threshold, exclude_self=True) or 0.0
 
@@ -657,7 +658,7 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
         ):
             near = pc_in_bim[overlap_idx]
             if len(near) > 1500:
-                near = near[np.random.choice(len(near), 1500, replace=False)]
+                near = near[RNG.choice(len(near), 1500, replace=False)]
             ratio, _n = ransac_plane(near, iters=25, thresh=threshold * 0.5)
             plane_inlier = round(ratio, 3)
             verified = ratio >= 0.5
