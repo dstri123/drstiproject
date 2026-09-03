@@ -35,12 +35,60 @@ map the cloud into the BIM local frame:  pc_in_bim = inv(T_bim) · T_pc · pc_lo
 """
 import os
 import struct
+import hashlib
 import logging
 import numpy as np
 from scipy.spatial import cKDTree
 
 logger = logging.getLogger(__name__)
 RNG = np.random.default_rng(42)
+
+
+def _stable_seed(*parts):
+    """Deterministic seed derived from stable inputs (content hashes, ids), so
+    the same BIM/point-cloud data always draws the same 'random' samples
+    across separate `analyze()` calls — clicking "Analyze" repeatedly on an
+    unchanged registered pair must return identical results, not results that
+    drift because they came from the process-global (unseeded) RNG."""
+    h = hashlib.sha256("|".join(str(p) for p in parts).encode()).digest()
+    return int.from_bytes(h[:4], "big")
+
+
+_FILE_CONTENT_SEED_CACHE = {}
+
+
+def _file_content_seed(path):
+    """Stable seed derived from a file's actual BYTES (sha256), cached by
+    (path, mtime, size) to avoid re-hashing on every call. Deliberately
+    content-based rather than path-based: two people uploading the identical
+    BIM/point-cloud file each get their own DB record and storage path/ID, so
+    seeding off the path would still make their analyses disagree even though
+    the underlying data is byte-for-byte the same. Hashing the content
+    instead means identical uploads always converge on the same seed no
+    matter where or by whom they were uploaded."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)
+    except OSError:
+        key = None
+    if key is not None and key in _FILE_CONTENT_SEED_CACHE:
+        return _FILE_CONTENT_SEED_CACHE[key]
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    seed = int.from_bytes(h.digest()[:4], "big")
+    if key is not None:
+        _FILE_CONTENT_SEED_CACHE[key] = seed
+    return seed
+
+
+def _content_subsample_seed(pts, max_points):
+    """Seed for the initial point-cloud cap, derived from the parsed points
+    themselves (not the file path) — so the same raw point data always caps
+    to the same subset regardless of which upload/path it came from."""
+    h = hashlib.sha256(pts.tobytes()).digest()
+    return _stable_seed(int.from_bytes(h[:4], "big"), max_points)
 
 # IFC type → friendly category. Every element with geometry is extracted and
 # categorized — nothing is filtered out and no category list is hardcoded
@@ -211,7 +259,8 @@ def read_ascii_points(path, max_points=400000):
                     continue
     pts = np.array(rows, dtype=np.float64)
     if len(pts) > max_points:
-        idx = np.random.choice(len(pts), max_points, replace=False)
+        rng = np.random.default_rng(_content_subsample_seed(pts, max_points))
+        idx = rng.choice(len(pts), max_points, replace=False)
         pts = pts[idx]
     return pts
 
@@ -383,9 +432,11 @@ def _assignment_sample_count(area, threshold):
     return int(np.clip(n, MIN_ASSIGN_SAMPLES, MAX_ASSIGN_SAMPLES))
 
 
-def sample_surface(verts, faces, n):
+def sample_surface(verts, faces, n, rng):
     """Sample n points spread across the mesh, weighted by triangle area — so
-    samples reflect actual SURFACE AREA, not uneven vertex density."""
+    samples reflect actual SURFACE AREA, not uneven vertex density. `rng` is a
+    caller-owned, deterministically-seeded Generator (see `analyze`) so the
+    same element always draws the same samples across repeated analyses."""
     if faces is None or len(faces) == 0:
         return verts[: n] if len(verts) else verts
     v0 = verts[faces[:, 0]]
@@ -406,10 +457,11 @@ def sample_surface(verts, faces, n):
     return a + u * (b - a) + w * (c - a)
 
 
-def ransac_plane(points, iters=60, thresh=0.05):
+def ransac_plane(points, rng, iters=60, thresh=0.05):
     """numpy RANSAC plane fit. Returns (inlier_ratio, normal) — high ratio means
     the nearby scan points form a coherent surface (a real wall/slab), not
-    scattered clutter. No Open3D needed."""
+    scattered clutter. No Open3D needed. `rng` is a caller-owned,
+    deterministically-seeded Generator (see `analyze`)."""
     n = len(points)
     if n < 3:
         return 0.0, None
@@ -483,7 +535,7 @@ def _probe_density(pc_tree, probes, threshold, min_hits=5, exclude_self=False):
     return float(np.mean(hits)) / cube_volume
 
 
-def _intrinsic_density(pc_points, threshold, cap=3000):
+def _intrinsic_density(pc_points, threshold, rng, cap=3000):
     """Points/m^3 from the scan's OWN local point spacing — probes centred on
     the cloud's own points, so this needs NO correct BIM registration at all
     (unlike `_element_density`/`_global_probe_density`, which probe at BIM
@@ -501,19 +553,19 @@ def _intrinsic_density(pc_points, threshold, cap=3000):
     return _probe_density(tree, sample, threshold, exclude_self=True) or 0.0
 
 
-def _element_density(pc_tree, verts, faces, threshold, global_density):
+def _element_density(pc_tree, verts, faces, threshold, global_density, rng):
     """Local density measured from probes on THIS element's own surface — scan
     density varies across a real site, so this is more accurate than one
     project-wide figure. Falls back to the global figure only when this
     element has no nearby scan data at all (e.g. not yet scanned)."""
     if len(verts) == 0 or pc_tree is None:
         return global_density
-    probes = sample_surface(verts, faces, PROBES_PER_ELEMENT)
+    probes = sample_surface(verts, faces, PROBES_PER_ELEMENT, rng)
     local = _probe_density(pc_tree, probes, threshold)
     return local if local is not None and local > 0 else global_density
 
 
-def _global_probe_density(pc_tree, elements, threshold):
+def _global_probe_density(pc_tree, elements, threshold, rng):
     """Same probe-bubble methodology as `_element_density`, pooled across
     every element's own surface — the fallback used only for elements with no
     nearby scan data of their own."""
@@ -522,7 +574,7 @@ def _global_probe_density(pc_tree, elements, threshold):
     probes = []
     for el in elements:
         if len(el["verts"]):
-            probes.append(sample_surface(el["verts"], el.get("faces"), GLOBAL_PROBES_PER_ELEMENT))
+            probes.append(sample_surface(el["verts"], el.get("faces"), GLOBAL_PROBES_PER_ELEMENT, rng))
     if not probes:
         return 0.0
     all_probes = np.concatenate(probes, axis=0)
@@ -530,7 +582,7 @@ def _global_probe_density(pc_tree, elements, threshold):
     return density or 0.0
 
 
-def _assign_points_to_elements(elements, pc_points, threshold):
+def _assign_points_to_elements(elements, pc_points, threshold, rng):
     """Assign every real scan point to its single nearest BIM element (within
     `threshold`) — the server-side equivalent of the viewer's voxel-hash
     "which element does this point overlap" check. Each point counts for
@@ -547,7 +599,7 @@ def _assign_points_to_elements(elements, pc_points, threshold):
         if len(verts) == 0:
             continue
         n = _assignment_sample_count(el.get("area", 0.0), threshold)
-        s = sample_surface(verts, faces, n)
+        s = sample_surface(verts, faces, n, rng)
         all_samples.append(s)
         owners.append(np.full(len(s), i, dtype=np.int64))
 
@@ -602,6 +654,19 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
     pts = read_pointcloud_points(pc_path, max_points=150000)
     point_count = len(pts)
 
+    # Deterministic RNG seeded from the BIM/point-cloud CONTENT itself (an IFC
+    # file hash + a hash of the loaded points), not their storage paths/DB
+    # ids: every sampling step below (element/plane/density probes) draws
+    # from this one Generator, consumed in the same fixed order (element list
+    # is cached and stable) every time — so repeated "Analyze" clicks on an
+    # unchanged pair, AND separate uploads of the identical BIM/point-cloud
+    # files (e.g. by different people), reproduce bit-identical
+    # elements/summary/categories, instead of drawing from the process-global
+    # (unseeded) RNG that differs on every call, or from a seed that differs
+    # just because the same content was uploaded under a different path/ID.
+    pc_content_seed = int.from_bytes(hashlib.sha256(pts.tobytes()).digest()[:4], "big")
+    rng = np.random.default_rng(_stable_seed(_file_content_seed(ifc_path), pc_content_seed))
+
     # Bring the cloud into the BIM local frame: inv(T_bim) · T_pc · pc_local.
     T_bim = compose_matrix(bim_transform)
     T_pc = compose_matrix(pc_transform)
@@ -611,13 +676,13 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
 
     # Tree over the real scan points — used for local density lookups.
     pc_tree = cKDTree(pc_in_bim, balanced_tree=False, compact_nodes=False) if point_count else None
-    global_density = _global_probe_density(pc_tree, elements, threshold) if point_count else 0.0
+    global_density = _global_probe_density(pc_tree, elements, threshold, rng) if point_count else 0.0
     if not global_density and point_count:
         # The BIM-anchored probes found nothing anywhere in the model — most
         # likely the saved bim/pc transforms don't actually register the two
         # correctly (rather than genuinely zero scan data). Fall back to the
         # scan's own intrinsic density so "BIM Points" is still a real number.
-        global_density = _intrinsic_density(pc_in_bim, threshold)
+        global_density = _intrinsic_density(pc_in_bim, threshold, rng)
 
     # Assign every real scan point to its nearest BIM element ("actual
     # overlapping points" — mirrors the viewer's 🟢 overlap check). Skipped
@@ -626,7 +691,7 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
     # alignment.
     owner_of_point = None
     if overlap_snapshot is None:
-        owner_of_point = _assign_points_to_elements(elements, pc_in_bim, threshold)
+        owner_of_point = _assign_points_to_elements(elements, pc_in_bim, threshold, rng)
 
     results = []
     for i, el in enumerate(elements):
@@ -639,7 +704,7 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
             overlap_idx = np.nonzero(owner_of_point == i)[0]
             overlap_points = int(len(overlap_idx))
 
-        density = _element_density(pc_tree, verts, el.get("faces"), threshold, global_density)
+        density = _element_density(pc_tree, verts, el.get("faces"), threshold, global_density, rng)
         # Points can only physically land in the thin shell around the true
         # surface (surface_area × threshold), not the full solid volume.
         shell_volume = el["area"] * threshold
