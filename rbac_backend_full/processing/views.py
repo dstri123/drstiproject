@@ -605,9 +605,17 @@ def _file_to_ply_bytes(path, ext, max_points=2_000_000):
     if len(pts) == 0:
         raise ValueError("The point-cloud file contains no readable points.")
 
-    # Sub-sample large clouds.
+    # Sub-sample large clouds. Seeded from the point data itself (not the
+    # request's temp file path, which is a fresh random tempdir every call) so
+    # the SAME uploaded file always converts to the SAME subsample no matter
+    # which machine/session loads it in the viewer — otherwise two people
+    # viewing the same point cloud would get different point sets and the
+    # live "Overlapping PointCloud Points" check would disagree between them.
     if len(pts) > max_points:
-        idx = np.random.choice(len(pts), max_points, replace=False)
+        import hashlib
+        seed = int.from_bytes(hashlib.sha256(pts.tobytes()).digest()[:4], "big")
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(len(pts), max_points, replace=False)
         pts = pts[idx]
         if colors is not None:
             colors = colors[idx]
