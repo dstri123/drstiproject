@@ -236,18 +236,13 @@ function ThreeViewer({
   // a single unit), and can be reset to 1×.
   const scaleBaseRef = useRef(new Map());
   const scalePivotRef = useRef(null);
+  const sectionManagerRef = useRef(null);
+  const [clipState, setClipState] = useState(null);
   // Set once BIM + point cloud are aligned to each other: the shared "common
   // point" they pivot around as a single rigid unit for scale/rotate/geo place.
   const [alignmentLocked, setAlignmentLocked] = useState(false);
   const commonPivotRef = useRef(null);
-  const handleAlignmentLocked = useCallback((pivot) => {
-    commonPivotRef.current = pivot;
-    // Re-capture scale bases so subsequent scaling pivots around the new
-    // aligned common point.
-    scaleBaseRef.current = new Map();
-    scalePivotRef.current = pivot.clone();
-    setAlignmentLocked(true);
-  }, []);
+  const overlappedTransformsRef = useRef(new Map());
 
   // Web-Mercator ground resolution: metres represented by one texture pixel at
   // a given latitude/zoom. Times the texture pixel size = real-world extent.
@@ -377,7 +372,7 @@ function ThreeViewer({
     // shows map instead of empty background beyond the plane edge.
     const TEX_PX = 1792;
     // Keep the 3D ground plane sized to the real extent of the map texture.
-    setGroundMeters(mapMetersForTexture(lat, zoom, TEX_PX));
+    setGroundMeters(mapMetersForTexture(lat, zoom, TEX_PX), 400);
 
     let cancelled = false;
 
@@ -434,40 +429,31 @@ function ThreeViewer({
     onError: error,
   });
 
-  // ── Section box (blue draggable crop box) + X/Y/Z slider bar ──────────────
-  // Both drive ONE SectionBoxManager so the box and the sliders stay in sync.
-  const sectionManagerRef = useRef(null);
-  const [clipState, setClipState] = useState(null); // { bounds, clip }
-
+  // Save the exact BIM + Point Cloud transforms once alignment is complete.
+  // These become the positions used by the Reset buttons.
   useEffect(() => {
-    const scene = sceneData.sceneRef?.current;
-    const camera = sceneData.cameraRef?.current;
-    const renderer = sceneData.rendererRef?.current;
-    const dom = renderer?.domElement;
-    if (!scene || !camera || !renderer) return;
+    if (!alignmentLocked) return;
 
-    sectionManagerRef.current = new SectionBoxManager({
-      scene,
-      camera,
-      renderer,
-      domElement: dom,
-      objects: [modelData.bimModel, modelData.pcModel],
-      onExtentsChange: (extents) => setClipState(extents),
+    const models = [modelData.bimModel, modelData.pcModel].filter(Boolean);
+
+    if (!models.length) return;
+
+    const savedTransforms = new Map();
+
+    models.forEach((model) => {
+      model.updateMatrixWorld(true);
+
+      savedTransforms.set(model, {
+        position: model.position.clone(),
+        quaternion: model.quaternion.clone(),
+        scale: model.scale.clone(),
+      });
     });
 
-    return () => {
-      try {
-        sectionManagerRef.current?.dispose();
-      } catch (e) {}
-      sectionManagerRef.current = null;
-    };
-  }, [
-    sceneData.sceneRef,
-    sceneData.cameraRef,
-    sceneData.rendererRef,
-    modelData.bimModel,
-    modelData.pcModel,
-  ]);
+    overlappedTransformsRef.current = savedTransforms;
+
+    console.log("OVERLAPPED POSITION SAVED FOR RESET", savedTransforms);
+  }, [alignmentLocked, modelData.bimModel, modelData.pcModel]);
 
   // Whether the visual crop box (edges/handles) is shown. Clipping stays on
   // regardless — this just hides the blue box for a clean view.
@@ -549,6 +535,7 @@ function ThreeViewer({
       );
       if (bimModel) bimModel.applyMatrix4(moveMatrix);
       if (pcModel) pcModel.applyMatrix4(moveMatrix);
+      cameraData.allCameras?.forEach((cam) => cam.applyMatrix4(moveMatrix));
 
       // Footprint area = combined X–Z extent in m² (geometry assumed in metres).
       // Only auto-fill if the user hasn't typed their own value.
@@ -755,6 +742,20 @@ function ThreeViewer({
       }
     };
   }, [geoMapOpen, geoMapImageUrl, groundMeters, sceneData.sceneRef]);
+
+  // Keep the camera's far-plane and framing sane whenever the geo panel opens,
+  // so the (possibly much larger) map ground plane doesn't get clipped or
+  // dominate the view before the user ever clicks "Place Models".
+  useEffect(() => {
+    if (!geoMapOpen) return;
+    const cam = sceneData.cameraRef?.current;
+    const ctrls = sceneData.controlsRef?.current;
+    if (!cam || !ctrls) return;
+
+    cam.far = Math.max(cam.far, groundMeters * 3);
+    cam.near = Math.min(cam.near, 0.5);
+    cam.updateProjectionMatrix();
+  }, [geoMapOpen, groundMeters, sceneData.cameraRef, sceneData.controlsRef]);
 
   // ── Pass segmentation state up to App ────────────────────────────────────
   // ── Pass RANSAC segmentation state up to App ─────────────────────────────
@@ -1005,6 +1006,19 @@ function ThreeViewer({
   );
 
   const pickingData = usePicking(sceneData, modelData, props);
+
+  // Called by useAlignment once the point cloud has been aligned to the BIM
+  // (via pick-and-align, ICP, or an uploaded matrix). `pivot` is the combined
+  // world-space center of both models at that moment — used as the shared
+  // pivot for later Scale/rotate/geo-place operations, and marks the pair as
+  // "grouped" so subsequent Resets restore this aligned position instead of
+  // the raw upload position.
+  const handleAlignmentLocked = useCallback((pivot) => {
+    if (pivot) {
+      commonPivotRef.current = pivot.clone();
+    }
+    setAlignmentLocked(true);
+  }, []);
 
   const { alignGeometry, alignGeometryICP } = useAlignment(
     sceneData,
@@ -1372,473 +1386,543 @@ function ThreeViewer({
           }}
         >
           {/* Group: model adjust + section box */}
-        <FlatToolbarButton
-          icon={
-            <SlidersHorizontal
-              size={16}
-              strokeWidth={rotatePanelOpen ? 2.2 : 1.8}
-            />
-          }
-          label="Adjust models (rotate / opacity / scale)"
-          active={rotatePanelOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePanel("rotate");
-          }}
-        />
-        <FlatToolbarButton
-          icon={
-            <Scissors size={16} strokeWidth={sectionBoxActive ? 2.2 : 1.8} />
-          }
-          label="Section box — crop with the blue box / X·Y·Z sliders"
-          active={sectionBoxActive}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleSectionBox();
-          }}
-        />
-
-        <ToolbarDivider />
-
-        {/* Group: camera navigation */}
-        <FlatToolbarButton
-          icon={<ZoomIn size={16} strokeWidth={1.8} />}
-          label="Zoom in"
-          onClick={(e) => {
-            e.stopPropagation();
-            zoomBy(0.7);
-          }}
-        />
-        <FlatToolbarButton
-          icon={<ZoomOut size={16} strokeWidth={1.8} />}
-          label="Zoom out"
-          onClick={(e) => {
-            e.stopPropagation();
-            zoomBy(1.43);
-          }}
-        />
-        <FlatToolbarButton
-          icon={<Maximize2 size={16} strokeWidth={1.8} />}
-          label="Fit models in view"
-          onClick={(e) => {
-            e.stopPropagation();
-            modelData.fitAll?.();
-          }}
-        />
-        <FlatToolbarButton
-          icon={<Grid3x3 size={16} strokeWidth={gridVisible ? 2.2 : 1.8} />}
-          label={gridVisible ? "Hide grid" : "Show grid"}
-          active={gridVisible}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePanel("grid");
-          }}
-        />
-        <FlatToolbarButton
-          icon={
-            <Route size={16} strokeWidth={cameraPathVisible ? 2.2 : 1.8} />
-          }
-          label={cameraPathVisible ? "Hide camera path" : "Show camera path"}
-          active={cameraPathVisible}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePanel("cameraPath");
-          }}
-        />
-
-        <FlatToolbarButton
-          icon={<Table2 size={16} strokeWidth={cameraTableOpen ? 2.2 : 1.8} />}
-          label="Camera data table"
-          active={cameraTableOpen}
-          onClick={(e) => {
-            e.stopPropagation();
-            togglePanel("cameraTable");
-          }}
-        />
-
-        <ToolbarDivider />
-
-        {/* Group: place on map + save */}
-        <FlatToolbarButton
-          icon={<MapPin size={16} strokeWidth={geoMapOpen ? 2.2 : 1.8} />}
-          label="Place models on a map location"
-          active={geoMapOpen}
-          onClick={(event) => {
-            event.stopPropagation();
-            togglePanel("geoMap");
-          }}
-        />
-        {onSavePosition && (
           <FlatToolbarButton
             icon={
-              <Save
+              <SlidersHorizontal
                 size={16}
-                strokeWidth={saveStatus === "saving" ? 2.2 : 1.8}
+                strokeWidth={rotatePanelOpen ? 2.2 : 1.8}
               />
             }
-            label="Save current position & orientation"
-            active={saveStatus === "saving"}
-            onClick={(event) => {
-              event.stopPropagation();
-              info("Saving current position & orientation…");
-              onSavePosition?.();
+            label="Adjust models (rotate / opacity / scale)"
+            active={rotatePanelOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePanel("rotate");
             }}
           />
-        )}
-        </div>
+          <FlatToolbarButton
+            icon={
+              <Scissors size={16} strokeWidth={sectionBoxActive ? 2.2 : 1.8} />
+            }
+            label="Section box — crop with the blue box / X·Y·Z sliders"
+            active={sectionBoxActive}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSectionBox();
+            }}
+          />
 
+          <ToolbarDivider />
+
+          {/* Group: camera navigation */}
+          <FlatToolbarButton
+            icon={<ZoomIn size={16} strokeWidth={1.8} />}
+            label="Zoom in"
+            onClick={(e) => {
+              e.stopPropagation();
+              zoomBy(0.7);
+            }}
+          />
+          <FlatToolbarButton
+            icon={<ZoomOut size={16} strokeWidth={1.8} />}
+            label="Zoom out"
+            onClick={(e) => {
+              e.stopPropagation();
+              zoomBy(1.43);
+            }}
+          />
+          <FlatToolbarButton
+            icon={<Maximize2 size={16} strokeWidth={1.8} />}
+            label="Fit models in view"
+            onClick={(e) => {
+              e.stopPropagation();
+              modelData.fitAll?.();
+            }}
+          />
+          <FlatToolbarButton
+            icon={<Grid3x3 size={16} strokeWidth={gridVisible ? 2.2 : 1.8} />}
+            label={gridVisible ? "Hide grid" : "Show grid"}
+            active={gridVisible}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePanel("grid");
+            }}
+          />
+          <FlatToolbarButton
+            icon={
+              <Route size={16} strokeWidth={cameraPathVisible ? 2.2 : 1.8} />
+            }
+            label={cameraPathVisible ? "Hide camera path" : "Show camera path"}
+            active={cameraPathVisible}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePanel("cameraPath");
+            }}
+          />
+
+          <FlatToolbarButton
+            icon={
+              <Table2 size={16} strokeWidth={cameraTableOpen ? 2.2 : 1.8} />
+            }
+            label="Camera data table"
+            active={cameraTableOpen}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePanel("cameraTable");
+            }}
+          />
+
+          <ToolbarDivider />
+
+          {/* Group: place on map + save */}
+          <FlatToolbarButton
+            icon={<MapPin size={16} strokeWidth={geoMapOpen ? 2.2 : 1.8} />}
+            label="Place models on a map location"
+            active={geoMapOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePanel("geoMap");
+            }}
+          />
+          {onSavePosition && (
+            <FlatToolbarButton
+              icon={
+                <Save
+                  size={16}
+                  strokeWidth={saveStatus === "saving" ? 2.2 : 1.8}
+                />
+              }
+              label="Save current position & orientation"
+              active={saveStatus === "saving"}
+              onClick={(event) => {
+                event.stopPropagation();
+                info("Saving current position & orientation…");
+                onSavePosition?.();
+              }}
+            />
+          )}
+        </div>
       </div>
 
-        {geoMapOpen && (
+      {geoMapOpen && (
+        <div
+          style={{
+            position: "absolute",
+            // top: 16,
+            right: 44,
+            zIndex: 9999,
+            pointerEvents: "auto",
+            width: 260,
+            padding: 12,
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.96)",
+            border: "1px solid rgba(148,163,184,0.32)",
+            boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
+            color: "#0f172a",
+            // Cap the panel height so it never runs past short laptop
+            // screens — fields scroll, the action button stays pinned below.
+            maxHeight: "min(78vh, 560px)",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           <div
             style={{
-              position: "absolute",
-              // top: 16,
-              right: 44,
-              zIndex: 9999,
-              pointerEvents: "auto",
-              width: 260,
-              padding: 12,
-              borderRadius: 16,
-              background: "rgba(255,255,255,0.96)",
-              border: "1px solid rgba(148,163,184,0.32)",
-              boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
-              color: "#0f172a",
-              // Cap the panel height so it never runs past short laptop
-              // screens — fields scroll, the action button stays pinned below.
-              maxHeight: "min(78vh, 560px)",
+              fontSize: 14,
+              fontWeight: 700,
+              marginBottom: 6,
               display: "flex",
-              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
             }}
           >
-            <div
+            <span>Map Location</span>
+            {alignmentLocked && (
+              <span
+                title="BIM + point cloud are aligned and grouped — they scale, rotate and place as one unit."
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "#15803d",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: 999,
+                  padding: "2px 8px",
+                }}
+              >
+                ● Grouped
+              </span>
+            )}
+          </div>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: "auto",
+              paddingRight: 2,
+            }}
+          >
+            <div style={{ marginBottom: 10 }}>
+              <LeafletMap
+                lat={parseFloat(geoLocation.latitude)}
+                lng={parseFloat(geoLocation.longitude)}
+                zoom={parseInt(geoLocation.zoom, 10) || 16}
+                height={130}
+                tileUrl={OSM_TILE_PROXY}
+                onMove={(lat, lng) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    latitude: lat.toFixed(6),
+                    longitude: lng.toFixed(6),
+                  }))
+                }
+              />
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#64748b",
+                  marginTop: 5,
+                }}
+              >
+                Drag the pin or click the map to set the location.
+              </div>
+            </div>
+            <label
               style={{
-                fontSize: 14,
-                fontWeight: 700,
+                display: "block",
                 marginBottom: 6,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
+                fontSize: 12,
+                color: "#475569",
               }}
             >
-              <span>Map Location</span>
-              {alignmentLocked && (
-                <span
-                  title="BIM + point cloud are aligned and grouped — they scale, rotate and place as one unit."
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: "#15803d",
-                    background: "#f0fdf4",
-                    border: "1px solid #bbf7d0",
-                    borderRadius: 999,
-                    padding: "2px 8px",
-                  }}
-                >
-                  ● Grouped
-                </span>
-              )}
-            </div>
-            <div
+              Latitude
+              <input
+                value={geoLocation.latitude}
+                onChange={(event) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    latitude: event.target.value,
+                  }))
+                }
+                placeholder="e.g. 12.9716"
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: 8,
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  outline: "none",
+                }}
+              />
+            </label>
+            <label
+              style={{
+                display: "block",
+                marginBottom: 8,
+                fontSize: 12,
+                color: "#475569",
+              }}
+            >
+              Longitude
+              <input
+                value={geoLocation.longitude}
+                onChange={(event) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    longitude: event.target.value,
+                  }))
+                }
+                placeholder="e.g. 77.5946"
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: 8,
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  outline: "none",
+                }}
+              />
+            </label>
+            {/* Altitude as a −100…+100 m slider — lift the model up or sink it
+                down to close any vertical gap with the ground. */}
+            <label
+              style={{
+                display: "block",
+                marginBottom: 10,
+                fontSize: 12,
+                color: "#475569",
+              }}
+            >
+              <span
+                style={{ display: "flex", justifyContent: "space-between" }}
+              >
+                <span>Altitude</span>
+                <strong>
+                  {(parseFloat(geoLocation.altitude) || 0).toFixed(0)} m
+                </strong>
+              </span>
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                step={1}
+                value={parseFloat(geoLocation.altitude) || 0}
+                onChange={(event) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    altitude: event.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  accentColor: "#2563eb",
+                }}
+              />
+            </label>
+            {/* Scale as a 0–50 slider (model size multiplier). */}
+            <label
+              style={{
+                display: "block",
+                marginBottom: 10,
+                fontSize: 12,
+                color: "#475569",
+              }}
+            >
+              <span
+                style={{ display: "flex", justifyContent: "space-between" }}
+              >
+                <span>Scale</span>
+                <strong>
+                  {(parseFloat(geoLocation.scale) || 0).toFixed(1)}×
+                </strong>
+              </span>
+              <input
+                type="range"
+                min={0.1}
+                max={50}
+                step={0.1}
+                value={parseFloat(geoLocation.scale) || 1}
+                onChange={(event) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    scale: event.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  accentColor: "#2563eb",
+                }}
+              />
+            </label>
+            {/* Zoom as a slider. Max 19 because OSM tiles only exist up to
+                zoom 19 — higher leaves the map blank ("no map"). */}
+            <label
+              style={{
+                display: "block",
+                marginBottom: 10,
+                fontSize: 12,
+                color: "#475569",
+              }}
+            >
+              <span
+                style={{ display: "flex", justifyContent: "space-between" }}
+              >
+                <span>Zoom</span>
+                <strong>{parseInt(geoLocation.zoom, 10) || 16}</strong>
+              </span>
+              <input
+                type="range"
+                min={14}
+                max={19}
+                step={1}
+                value={parseInt(geoLocation.zoom, 10) || 16}
+                onChange={(event) =>
+                  setGeoLocation((prev) => ({
+                    ...prev,
+                    zoom: event.target.value,
+                  }))
+                }
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  accentColor: "#2563eb",
+                }}
+              />
+            </label>
+          </div>
+          <div
+            style={{
+              flexShrink: 0,
+              marginTop: 8,
+            }}
+          >
+            <label style={{ fontSize: 12, color: "#475569" }}>
+              Building Footprint (m²)
+              <input
+                type="number"
+                value={footprintArea ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  footprintEditedRef.current = true;
+                  setFootprintArea(v === "" ? null : parseFloat(v));
+                }}
+                placeholder="e.g. 2500"
+                style={{
+                  width: "100%",
+                  marginTop: 4,
+                  padding: 8,
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  outline: "none",
+                  fontSize: 13,
+                }}
+              />
+            </label>
+          </div>
+          <div
+            style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}
+          >
+            <button
+              onClick={resetGeoLocation}
+              title="Undo placement/scale and reset the panel"
+              style={{
+                flex: "0 0 auto",
+                padding: "10px 14px",
+                borderRadius: 12,
+                border: "1px solid #cbd5e1",
+                background: "#fff",
+                color: "#475569",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Reset
+            </button>
+            <button
+              onClick={applyGeoLocation}
               style={{
                 flex: 1,
-                minHeight: 0,
-                overflowY: "auto",
-                paddingRight: 2,
+                padding: "10px 0",
+                borderRadius: 12,
+                border: "none",
+                background: "#2563eb",
+                color: "#fff",
+                cursor: "pointer",
+                fontWeight: 700,
               }}
             >
-              <div style={{ marginBottom: 10 }}>
-                <LeafletMap
-                  lat={parseFloat(geoLocation.latitude)}
-                  lng={parseFloat(geoLocation.longitude)}
-                  zoom={parseInt(geoLocation.zoom, 10) || 16}
-                  height={130}
-                  tileUrl={OSM_TILE_PROXY}
-                  onMove={(lat, lng) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      latitude: lat.toFixed(6),
-                      longitude: lng.toFixed(6),
-                    }))
-                  }
-                />
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: "#64748b",
-                    marginTop: 5,
-                  }}
-                >
-                  Drag the pin or click the map to set the location.
-                </div>
-              </div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 6,
-                  fontSize: 12,
-                  color: "#475569",
-                }}
-              >
-                Latitude
-                <input
-                  value={geoLocation.latitude}
-                  onChange={(event) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      latitude: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. 12.9716"
-                  style={{
-                    width: "100%",
-                    marginTop: 6,
-                    padding: 8,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    outline: "none",
-                  }}
-                />
-              </label>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 8,
-                  fontSize: 12,
-                  color: "#475569",
-                }}
-              >
-                Longitude
-                <input
-                  value={geoLocation.longitude}
-                  onChange={(event) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      longitude: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. 77.5946"
-                  style={{
-                    width: "100%",
-                    marginTop: 6,
-                    padding: 8,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    outline: "none",
-                  }}
-                />
-              </label>
-              {/* Altitude as a −100…+100 m slider — lift the model up or sink it
-                down to close any vertical gap with the ground. */}
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 10,
-                  fontSize: 12,
-                  color: "#475569",
-                }}
-              >
-                <span
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span>Altitude</span>
-                  <strong>
-                    {(parseFloat(geoLocation.altitude) || 0).toFixed(0)} m
-                  </strong>
-                </span>
-                <input
-                  type="range"
-                  min={-100}
-                  max={100}
-                  step={1}
-                  value={parseFloat(geoLocation.altitude) || 0}
-                  onChange={(event) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      altitude: event.target.value,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    marginTop: 6,
-                    accentColor: "#2563eb",
-                  }}
-                />
-              </label>
-              {/* Scale as a 0–50 slider (model size multiplier). */}
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 10,
-                  fontSize: 12,
-                  color: "#475569",
-                }}
-              >
-                <span
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span>Scale</span>
-                  <strong>
-                    {(parseFloat(geoLocation.scale) || 0).toFixed(1)}×
-                  </strong>
-                </span>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={50}
-                  step={0.1}
-                  value={parseFloat(geoLocation.scale) || 1}
-                  onChange={(event) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      scale: event.target.value,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    marginTop: 6,
-                    accentColor: "#2563eb",
-                  }}
-                />
-              </label>
-              {/* Zoom as a slider. Max 19 because OSM tiles only exist up to
-                zoom 19 — higher leaves the map blank ("no map"). */}
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: 10,
-                  fontSize: 12,
-                  color: "#475569",
-                }}
-              >
-                <span
-                  style={{ display: "flex", justifyContent: "space-between" }}
-                >
-                  <span>Zoom</span>
-                  <strong>{parseInt(geoLocation.zoom, 10) || 16}</strong>
-                </span>
-                <input
-                  type="range"
-                  min={14}
-                  max={19}
-                  step={1}
-                  value={parseInt(geoLocation.zoom, 10) || 16}
-                  onChange={(event) =>
-                    setGeoLocation((prev) => ({
-                      ...prev,
-                      zoom: event.target.value,
-                    }))
-                  }
-                  style={{
-                    width: "100%",
-                    marginTop: 6,
-                    accentColor: "#2563eb",
-                  }}
-                />
-              </label>
-            </div>
-            <div
-              style={{
-                flexShrink: 0,
-                marginTop: 8,
-              }}
-            >
-              <label style={{ fontSize: 12, color: "#475569" }}>
-                Building Footprint (m²)
-                <input
-                  type="number"
-                  value={footprintArea ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    footprintEditedRef.current = true;
-                    setFootprintArea(v === "" ? null : parseFloat(v));
-                  }}
-                  placeholder="e.g. 2500"
-                  style={{
-                    width: "100%",
-                    marginTop: 4,
-                    padding: 8,
-                    borderRadius: 10,
-                    border: "1px solid #cbd5e1",
-                    outline: "none",
-                    fontSize: 13,
-                  }}
-                />
-              </label>
-            </div>
-            <div
-              style={{ flexShrink: 0, display: "flex", gap: 8, marginTop: 10 }}
-            >
-              <button
-                onClick={resetGeoLocation}
-                title="Undo placement/scale and reset the panel"
-                style={{
-                  flex: "0 0 auto",
-                  padding: "10px 14px",
-                  borderRadius: 12,
-                  border: "1px solid #cbd5e1",
-                  background: "#fff",
-                  color: "#475569",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                }}
-              >
-                Reset
-              </button>
-              <button
-                onClick={applyGeoLocation}
-                style={{
-                  flex: 1,
-                  padding: "10px 0",
-                  borderRadius: 12,
-                  border: "none",
-                  background: "#2563eb",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontWeight: 700,
-                }}
-              >
-                Place Models
-              </button>
-            </div>
+              Place Models
+            </button>
           </div>
-        )}
-        {cameraTableOpen && (
+        </div>
+      )}
+      {cameraTableOpen && (
+        <div
+          style={{
+            position: "absolute",
+            // top: 16,
+            right: 44,
+            zIndex: 9999,
+            pointerEvents: "auto",
+            width: 360,
+            maxHeight: "min(70vh, 480px)",
+            padding: 14,
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.96)",
+            border: "1px solid rgba(148,163,184,0.32)",
+            boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
+            color: "#0f172a",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
           <div
             style={{
-              position: "absolute",
-              // top: 16,
-              right: 44,
-              zIndex: 9999,
-              pointerEvents: "auto",
-              width: 360,
-              maxHeight: "min(70vh, 480px)",
-              padding: 14,
-              borderRadius: 16,
-              background: "rgba(255,255,255,0.96)",
-              border: "1px solid rgba(148,163,184,0.32)",
-              boxShadow: "0 20px 40px rgba(15, 23, 42, 0.12)",
-              color: "#0f172a",
               display: "flex",
-              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 10,
+              flexShrink: 0,
             }}
           >
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Camera Data</div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                addCameraTableColumn();
+              }}
+              style={{
+                padding: "4px 10px",
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                background: "#f8fafc",
+                color: "#0f172a",
+                cursor: "pointer",
+              }}
+            >
+              + Column
+            </button>
+          </div>
+          {cameraTableColumns.length > 0 && (
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "space-between",
+                gap: 8,
                 marginBottom: 10,
                 flexShrink: 0,
               }}
             >
-              <div style={{ fontSize: 14, fontWeight: 700 }}>Camera Data</div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                Color by:
+              </span>
+              <select
+                value={colorByColumn || ""}
+                onChange={(e) => setColorByColumn(e.target.value || null)}
+                style={{
+                  fontSize: 11,
+                  padding: "3px 6px",
+                  borderRadius: 6,
+                  border: "1px solid #cbd5e1",
+                }}
+              >
+                <option value="">Select column</option>
+                {cameraTableColumns.map((col) => (<option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!colorByColumn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  colorCamerasByColumn(cameraTableData, colorByColumn);
+                }}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  background: colorByColumn ? "#2563eb" : "#f1f5f9",
+                  color: colorByColumn ? "#fff" : "#94a3b8",
+                  cursor: colorByColumn ? "pointer" : "not-allowed",
+                }}
+              >
+                Apply Colors
+              </button>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  addCameraTableColumn();
+                  resetCameraColors();
                 }}
                 style={{
                   padding: "4px 10px",
@@ -1851,94 +1935,38 @@ function ThreeViewer({
                   cursor: "pointer",
                 }}
               >
-                + Column
+                Reset
               </button>
             </div>
-            {cameraTableColumns.length > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 10,
-                  flexShrink: 0,
-                }}
-              >
-                <span
-                  style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}
-                >
-                  Color by:
-                </span>
-                <select
-                  value={colorByColumn || ""}
-                  onChange={(e) => setColorByColumn(e.target.value || null)}
-                  style={{
-                    fontSize: 11,
-                    padding: "3px 6px",
-                    borderRadius: 6,
-                    border: "1px solid #cbd5e1",
-                  }}
-                >
-                  <option value="">Select column</option>
-                  {cameraTableColumns.map((col) => (
-                    <option key={col} value={col}>
-                      {col}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!colorByColumn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    colorCamerasByColumn(cameraTableData, colorByColumn);
-                  }}
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    borderRadius: 8,
-                    border: "1px solid #cbd5e1",
-                    background: colorByColumn ? "#2563eb" : "#f1f5f9",
-                    color: colorByColumn ? "#fff" : "#94a3b8",
-                    cursor: colorByColumn ? "pointer" : "not-allowed",
-                  }}
-                >
-                  Apply Colors
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    resetCameraColors();
-                  }}
-                  style={{
-                    padding: "4px 10px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    borderRadius: 8,
-                    border: "1px solid #cbd5e1",
-                    background: "#f8fafc",
-                    color: "#0f172a",
-                    cursor: "pointer",
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-            )}
+          )}
 
-            <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
-              <table
-                style={{
-                  borderCollapse: "collapse",
-                  width: "100%",
-                  fontSize: 12,
-                }}
-              >
-                <thead>
-                  <tr>
+          <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
+            <table
+              style={{
+                borderCollapse: "collapse",
+                width: "100%",
+                fontSize: 12,
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    style={{
+                      position: "sticky",
+                      top: 0,
+                      background: "#f1f5f9",
+                      textAlign: "left",
+                      padding: "6px 8px",
+                      borderBottom: "1px solid #e2e8f0",
+                      fontWeight: 700,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Camera ID
+                  </th>
+                  {cameraTableColumns.map((col) => (
                     <th
+                      key={col}
                       style={{
                         position: "sticky",
                         top: 0,
@@ -1950,118 +1978,102 @@ function ThreeViewer({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      Camera ID
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>{col}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeCameraTableColumn(col);
+                          }}
+                          title={`Remove column "${col}"`}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "#94a3b8",
+                            cursor: "pointer",
+                            display: "grid",
+                            placeItems: "center",
+                            padding: 0,
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cameraIds.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={1 + cameraTableColumns.length}
+                      style={{ padding: "12px 8px", color: "#94a3b8" }}
+                    >
+                      No cameras loaded yet — load a camera positions file or
+                      add a camera manually.
+                    </td>
+                  </tr>
+                )}
+                {cameraIds.map((camId) => (
+                  <tr key={camId}>
+                    <td
+                      style={{
+                        padding: "6px 8px",
+                        borderBottom: "1px solid #f1f5f9",
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {camId}
+                    </td>
                     {cameraTableColumns.map((col) => (
-                      <th
+                      <td
                         key={col}
                         style={{
-                          position: "sticky",
-                          top: 0,
-                          background: "#f1f5f9",
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          borderBottom: "1px solid #e2e8f0",
-                          fontWeight: 700,
-                          whiteSpace: "nowrap",
+                          padding: "4px 6px",
+                          borderBottom: "1px solid #f1f5f9",
                         }}
                       >
-                        <div
+                        <input
+                          value={cameraTableData[camId]?.[col] ?? ""}
+                          onChange={(e) =>
+                            updateCameraTableCell(camId, col, e.target.value)
+                          }
+                          onPaste={(e) => handleColumnPaste(e, camId, col)}
+                          placeholder="—"
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
+                            width: "100%",
+                            padding: "4px 6px",
+                            fontSize: 11,
+                            borderRadius: 6,
+                            border: "1px solid #e2e8f0",
+                            outline: "none",
                           }}
-                        >
-                          <span>{col}</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeCameraTableColumn(col);
-                            }}
-                            title={`Remove column "${col}"`}
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "#94a3b8",
-                              cursor: "pointer",
-                              display: "grid",
-                              placeItems: "center",
-                              padding: 0,
-                            }}
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      </th>
+                        />
+                      </td>
                     ))}
                   </tr>
-                </thead>
-                <tbody>
-                  {cameraIds.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={1 + cameraTableColumns.length}
-                        style={{ padding: "12px 8px", color: "#94a3b8" }}
-                      >
-                        No cameras loaded yet — load a camera positions file or
-                        add a camera manually.
-                      </td>
-                    </tr>
-                  )}
-                  {cameraIds.map((camId) => (
-                    <tr key={camId}>
-                      <td
-                        style={{
-                          padding: "6px 8px",
-                          borderBottom: "1px solid #f1f5f9",
-                          fontWeight: 600,
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {camId}
-                      </td>
-                      {cameraTableColumns.map((col) => (
-                        <td
-                          key={col}
-                          style={{
-                            padding: "4px 6px",
-                            borderBottom: "1px solid #f1f5f9",
-                          }}
-                        >
-                          <input
-                            value={cameraTableData[camId]?.[col] ?? ""}
-                            onChange={(e) =>
-                              updateCameraTableCell(camId, col, e.target.value)
-                            }
-                            onPaste={(e) => handleColumnPaste(e, camId, col)}
-                            placeholder="—"
-                            style={{
-                              width: "100%",
-                              padding: "4px 6px",
-                              fontSize: 11,
-                              borderRadius: 6,
-                              border: "1px solid #e2e8f0",
-                              outline: "none",
-                            }}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {cameraTableColumns.length === 0 && cameraIds.length > 0 && (
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
-                Click "+ Column" to add fields (e.g. Notes, Status) that you can
-                fill in per camera.
-              </div>
-            )}
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+
+          {cameraTableColumns.length === 0 && cameraIds.length > 0 && (
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
+              Click "+ Column" to add fields (e.g. Notes, Status) that you can
+              fill in per camera.
+            </div>
+          )}
+        </div>
+      )}
 
       {rotatePanelOpen && (
         <div
@@ -2140,8 +2152,32 @@ function ThreeViewer({
                   disabled={!model}
                   onClick={(e) => {
                     e.stopPropagation();
-                    modelData.resetTransform?.(model);
-                    setScaleFactor((prev) => ({ ...prev, [label]: 1 }));
+
+                    // Only restore the aligned (overlapped) position — never
+                    // fall back to the raw upload position.
+                    const savedTransform =
+                      overlappedTransformsRef.current.get(model);
+
+                    if (!savedTransform) {
+                      info(
+                        `${label} hasn't been aligned yet — nothing to reset to.`,
+                      );
+                      return;
+                    }
+
+                    model.position.copy(savedTransform.position);
+                    model.quaternion.copy(savedTransform.quaternion);
+                    model.scale.copy(savedTransform.scale);
+                    model.updateMatrix();
+                    model.updateMatrixWorld(true);
+
+                    console.log("Reset to ALIGNED position:", label);
+
+                    setScaleFactor((prev) => ({
+                      ...prev,
+                      [label]: 1,
+                    }));
+
                     setRotation((prev) => ({
                       ...prev,
                       [label]: { x: 0, y: 0, z: 0 },
