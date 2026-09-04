@@ -450,7 +450,7 @@ function applyCleanBim(root) {
   });
 }
 
-function CompareScene({ uploadsByDate }) {
+function CompareScene({ uploadsByDate, initialDate }) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneRef = useRef(null);
@@ -888,6 +888,19 @@ function CompareScene({ uploadsByDate }) {
     setCalOpen(null);
     if (sel) loadSide(s, dateStr, sel);
   };
+
+  // On first arriving here with a project/date already loaded in the Viewer
+  // (see PersistentWorkspace), auto-load the same date into Side A so this
+  // page shows those models instead of starting on a blank "Pick date"
+  // screen. Fires once only — later Viewer date changes don't retroactively
+  // overwrite a comparison the user has already set up here by hand.
+  const autoPickedRef = useRef(false);
+  useEffect(() => {
+    if (autoPickedRef.current) return;
+    if (!initialDate || !uploadsByDate[initialDate]) return;
+    autoPickedRef.current = true;
+    onPickDate("A")(initialDate);
+  }, [initialDate, uploadsByDate]);
 
   const onPickModel = (s) => (e) => {
     const sel = e.target.value;
@@ -1338,7 +1351,10 @@ function overlayLabel(side, color) {
 }
 
 
-export default function AnalyticsPage({ routeParam: routeParamProp } = {}) {
+export default function AnalyticsPage({
+  routeParam: routeParamProp,
+  initialDate,
+} = {}) {
   // Same route-param format as the Viewer (`${id}_${name}`) — reuse its helper
   // so Analytics resolves to the same project id, and therefore the same
   // upload dates shown on Project → 3D Data.
@@ -1522,7 +1538,10 @@ export default function AnalyticsPage({ routeParam: routeParamProp } = {}) {
 
           {/* Curtain comparison */}
           <div style={{ flex: 1, overflow: "hidden" }}>
-            <CompareScene uploadsByDate={uploadsByDate} />
+            <CompareScene
+              uploadsByDate={uploadsByDate}
+              initialDate={initialDate}
+            />
           </div>
         </div>
       </div>

@@ -710,6 +710,13 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
         # surface (surface_area × threshold), not the full solid volume.
         shell_volume = el["area"] * threshold
         points_max = int(round(shell_volume * density)) if shell_volume > 0 and density > 0 else 0
+        # The density model only ESTIMATES the max — real scan data is ground
+        # truth. If more real points actually landed on this element than the
+        # estimate allows, the estimate was too low: raise it to match what
+        # was actually observed so "overlap" can never outnumber "max" (which
+        # would otherwise show >100% before the min() clamp below, and made
+        # BIM POINTS look smaller than OVERLAP POINTS in the UI).
+        points_max = max(points_max, overlap_points)
         pct = round(min(100.0, overlap_points / points_max * 100.0), 1) if points_max > 0 else 0.0
 
         # Plane verification (walls/slabs/roofs): reuse the real points already
