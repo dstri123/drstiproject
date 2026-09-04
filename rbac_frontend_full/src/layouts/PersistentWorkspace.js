@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import ViewerPage from "../pages/viewer/ViewerPage";
 import AnalyticsPage from "../pages/analytics/AnalyticsPage";
@@ -44,6 +44,14 @@ export default function PersistentWorkspace() {
     );
   }, [section, slug]);
 
+  // Which project/date is currently loaded in the Viewer, so Analytics (a
+  // separate always-mounted sibling) can auto-load the same date on its
+  // first visit instead of starting on a blank "Pick date" screen.
+  const [viewerActive, setViewerActive] = useState({ slug: null, date: "" });
+  const handleViewerDateChange = useCallback((viewerSlug, date) => {
+    setViewerActive({ slug: viewerSlug, date });
+  }, []);
+
   const visibility = (isActive) => ({
     display: isActive ? undefined : "none",
   });
@@ -52,7 +60,11 @@ export default function PersistentWorkspace() {
     <>
       {mounted.viewer && (
         <div style={visibility(section === "viewer")}>
-          <ViewerPage key={mounted.viewer} projectSlug={mounted.viewer} />
+          <ViewerPage
+            key={mounted.viewer}
+            projectSlug={mounted.viewer}
+            onDateChange={handleViewerDateChange}
+          />
         </div>
       )}
       {mounted.analytics && (
@@ -60,6 +72,11 @@ export default function PersistentWorkspace() {
           <AnalyticsPage
             key={mounted.analytics}
             routeParam={mounted.analytics}
+            initialDate={
+              viewerActive.slug === mounted.analytics
+                ? viewerActive.date
+                : null
+            }
           />
         </div>
       )}

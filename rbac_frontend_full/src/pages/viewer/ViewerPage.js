@@ -8,7 +8,10 @@ import Layout from "./layout/Layout";
 import ThreeViewer from "./components/viewer/ThreeViewer";
 import { useToast } from "../../components/ToastContainer";
 
-export default function ViewerPage({ projectSlug: projectSlugProp } = {}) {
+export default function ViewerPage({
+  projectSlug: projectSlugProp,
+  onDateChange,
+} = {}) {
   // Accepts projectSlug as a prop (from PersistentWorkspace, which keeps this
   // page mounted across navigation to Analytics/Progress) — falls back to the
   // route param so ViewerPage still works if ever rendered directly by a
@@ -369,6 +372,13 @@ resolveRemoteUrl(matrixItem.file),
     // fetch), which is enough concurrent load to make the browser drop one of
     // the duplicate large fetches ("Failed to fetch").
   }, [projectSlug]);
+
+  // Report the project/date currently loaded here up to PersistentWorkspace,
+  // so the Analytics page (a separate, single-mount-per-project component)
+  // can auto-load the same date on first visit instead of starting blank.
+  useEffect(() => {
+    onDateChange?.(projectSlug, selectedDate);
+  }, [projectSlug, selectedDate, onDateChange]);
 
   const handleDateSelect = useCallback(
     (dateKey) => {

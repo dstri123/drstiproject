@@ -27,7 +27,6 @@ import useTransformControls from "./useTransformControls";
 import useObjectSelection from "./useObjectSelection";
 import BlenderViewportGizmo from "../gizmo/BlenderViewportGizmo";
 import CompassRing from "../gizmo/CompassRing";
-import useBlenderTransformGizmo from "../gizmo/useBlenderTransformGizmo";
 import SectionBoxManager from "./sectionbox/SectionBoxManager";
 import ClipBar from "./ClipBar";
 import LeafletMap from "./LeafletMap";
@@ -792,15 +791,6 @@ function ThreeViewer({
     selectedObject !== undefined ? selectedObject : localSelectedObject;
   const setActiveSelectedObject = setSelectedObject || setLocalSelectedObject;
 
-  const selectedLabel =
-    activeSelectedObject === modelData.bimModel
-      ? "BIM Model"
-      : activeSelectedObject === modelData.pcModel
-        ? "Point Cloud"
-        : activeSelectedObject
-          ? "Element"
-          : null;
-
   const selectModel = useCallback(
     (model) => {
       setActiveSelectedObject((prev) => (prev === model ? null : model));
@@ -1162,7 +1152,6 @@ function ThreeViewer({
 
   useTransformControls(sceneData);
 
-  // ── Blender-style gizmos ─────────────────────────────────────────────────
   useObjectSelection(
     sceneData.sceneRef,
     sceneData.cameraRef,
@@ -1170,7 +1159,6 @@ function ThreeViewer({
     modelData,
     setActiveSelectedObject,
   );
-  useBlenderTransformGizmo(sceneData, activeSelectedObject);
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -1303,57 +1291,6 @@ function ThreeViewer({
           </div>
         </div>
       )} */}
-
-      {selectedLabel && (
-        <div
-          style={{
-            position: "absolute",
-            top: 16,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 10000,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            padding: "8px 14px",
-            borderRadius: 12,
-            background: "rgba(29,78,216,0.95)",
-            border: "1px solid rgba(148,163,184,0.4)",
-            boxShadow: "0 12px 30px rgba(15, 23, 42, 0.12)",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#ffffff",
-            pointerEvents: "auto",
-            maxWidth: "min(560px, calc(100% - 220px))",
-          }}
-        >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-            Selected: {selectedLabel} — drag the colored arrows/rings to move or
-            rotate it
-          </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setActiveSelectedObject(null);
-            }}
-            title="Clear selection"
-            style={{
-              border: "none",
-              background: "rgba(255,255,255,0.2)",
-              color: "#ffffff",
-              borderRadius: 8,
-              padding: "2px 8px",
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
 
       <div
         style={{
