@@ -117,7 +117,10 @@ const IFC_TYPE_CATEGORY_MAP = {
   IFCPILE: "Foundations",
 };
 
-function categorizeElementName(name) {
+// Exported so other consumers (e.g. usePicking.js, to know which sidebar
+// category a just-clicked element belongs to) categorize elements the exact
+// same way the sidebar's own category breakdown was built.
+export function categorizeElementName(name) {
   const n = (name || "").toLowerCase();
   for (const { category, keywords } of CATEGORY_KEYWORDS) {
     if (keywords.some((k) => n.includes(k))) return category;
@@ -125,7 +128,7 @@ function categorizeElementName(name) {
   return "Other";
 }
 
-function categorizeIfcType(ifcType) {
+export function categorizeIfcType(ifcType) {
   if (!ifcType) return "Other";
   const normalized = ifcType.toUpperCase();
   return IFC_TYPE_CATEGORY_MAP[normalized] || categorizeElementName(normalized);
