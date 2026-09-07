@@ -177,8 +177,24 @@ export default function ViewerPage({
       pickByExtension(items, [".fbx", ".ifc", ".ply"]) ||
       items?.[0];
 
-    const bimItem = latestByFlag(uploads.bim);
-    const pointItem = latestByFlag(uploads.pc);
+    // Fall back to the most recent upload at-or-before dateKey when this
+    // type has nothing dated exactly on the selected day — e.g. a point
+    // cloud re-uploaded later than the BIM model shouldn't make the BIM
+    // model vanish just because it isn't dated "today" too.
+    const pickWithCarryForward = (type) => {
+      const exact = latestByFlag(uploads[type]);
+      if (exact) return exact;
+      const priorDateKeys = Object.keys(grouped)
+        .filter((d) => d <= dateKey && (grouped[d][type] || []).length)
+        .sort()
+        .reverse();
+      return priorDateKeys.length
+        ? latestByFlag(grouped[priorDateKeys[0]][type])
+        : null;
+    };
+
+    const bimItem = pickWithCarryForward("bim");
+    const pointItem = pickWithCarryForward("pc");
 
     setLatestBimItem(bimItem || null);
     setLatestPointItem(pointItem || null);
@@ -258,8 +274,8 @@ export default function ViewerPage({
       if (cameraItem?.file) {
         try {
           const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
-responseType: "blob",
-});
+            responseType: "blob",
+          });
           setCameraPositionsFile(camResponse.data);
           // Derive a display name from the server URL
           const rawName = cameraItem.file.split("?")[0].split("/").pop();
@@ -295,10 +311,10 @@ responseType: "blob",
         setUploadedAlignmentMatrix(null);
       } else {
         try {
-const matResp = await fetchWithRetry(
-resolveRemoteUrl(matrixItem.file),
-); 
-         const matJson = await matResp.json();
+          const matResp = await fetchWithRetry(
+            resolveRemoteUrl(matrixItem.file),
+          );
+          const matJson = await matResp.json();
           const isValid4x4 =
             Array.isArray(matJson) &&
             matJson.length === 4 &&
@@ -491,7 +507,6 @@ resolveRemoteUrl(matrixItem.file),
     };
   }, [handleSaveAlignmentPair]);
 
-
   // Persist the geolocation a contributor sets via the Map Location panel
   // ("Place Models") back to the project record.
   const handleSaveGeo = async ({
@@ -574,7 +589,6 @@ resolveRemoteUrl(matrixItem.file),
       setIsSamRunning(isSamRunning);
       setSamProgress(samProgress);
       setSemanticSummary(semanticSummary || null);
-
     },
     [],
   );
