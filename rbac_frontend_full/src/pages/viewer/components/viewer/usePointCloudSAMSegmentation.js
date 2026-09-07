@@ -2,28 +2,28 @@ import { useCallback, useRef, useState } from "react";
 import * as THREE from "three";
 
 const POINT_CLOUD_SEMANTIC_CLASSES = {
-  ground: { id: 0, label: "Ground", color: [101, 67, 33], emoji: ":large_brown_square:" },
-  slab: { id: 1, label: "Slab", color: [169, 169, 169], emoji: ":rock:" },
-  wall: { id: 2, label: "Wall", color: [70, 100, 160], emoji: ":building_construction:" },
-  column: { id: 3, label: "Column", color: [220, 120, 30], emoji: ":bricks:" },
-  beam: { id: 4, label: "Beam", color: [230, 190, 0], emoji: ":triangular_ruler:" },
+  ground: { id: 0, label: "Ground", color: [101, 67, 33], emoji: "🟫" },
+  slab: { id: 1, label: "Slab", color: [169, 169, 169], emoji: "🪨" },
+  wall: { id: 2, label: "Wall", color: [70, 100, 160], emoji: "🏗" },
+  column: { id: 3, label: "Column", color: [220, 120, 30], emoji: "🧱" },
+  beam: { id: 4, label: "Beam", color: [230, 190, 0], emoji: "📐" },
   scaffolding: {
     id: 5,
     label: "Scaffolding",
     color: [160, 60, 20],
-    emoji: ":nut_and_bolt:",
+    emoji: "🔩",
   },
   equipment: {
     id: 6,
     label: "Equipment / Machinery",
     color: [210, 40, 40],
-    emoji: ":construction:",
+    emoji: "🚧",
   },
   concrete: {
     id: 7,
     label: "Concrete / Cement",
     color: [135, 206, 235],
-    emoji: ":bricks:",
+    emoji: "🧱",
   },
 };
 

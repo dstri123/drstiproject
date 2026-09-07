@@ -290,13 +290,14 @@ function ransacSegment(geometry) {
         if (dist < RANSAC_THRESHOLD) inliers.push(remaining[ri]);
       }
 
-const ratio = inliers.length / remaining.length;
-      if (inliers.length > bestInliers.length || ratio > bestRatio) {        
+      const ratio = inliers.length / remaining.length;
+      if (inliers.length > bestInliers.length || ratio > bestRatio) {
         bestInliers = inliers;
         bestPlane = { nx, ny, nz, d };
         bestRatio = ratio;
         // Early exit if we have a dominant plane
-if (bestRatio >= RANSAC_MIN_RATIO) break;      }
+        if (bestRatio >= RANSAC_MIN_RATIO) break;
+      }
     }
 
     // 4. Accept plane only if we found a dominant surface cluster
@@ -310,7 +311,6 @@ if (bestRatio >= RANSAC_MIN_RATIO) break;      }
 
     planes.push(bestPlane);
     const inlierSet = new Set(bestInliers);
-
 
     // 5. Remove inliers from remaining set
     remaining = remaining.filter((ri) => !inlierSet.has(ri));
@@ -590,16 +590,12 @@ export default function useModelLoader(sceneData, props) {
     try {
       const loader = getIfcLoader();
       const ifcModel = await new Promise((resolve, reject) => {
-        loader.load(
-          url,
-          resolve,
-          undefined,
-          (err) =>
-            reject(
-              err instanceof Error
-                ? err
-                : new Error("Failed to parse IFC file in the browser."),
-            ),
+        loader.load(url, resolve, undefined, (err) =>
+          reject(
+            err instanceof Error
+              ? err
+              : new Error("Failed to parse IFC file in the browser."),
+          ),
         );
       });
       return ifcModel;
@@ -733,11 +729,19 @@ export default function useModelLoader(sceneData, props) {
       const categoryCounts = {};
       const isIfcModel = typeof object.getIfcType === "function";
       const expressIDs = isIfcModel ? collectIfcExpressIds(object) : null;
-
       if (expressIDs?.length) {
         meshCount = expressIDs.length;
         for (const expressID of expressIDs) {
-          const ifcType = object.getIfcType(expressID);
+          let ifcType = null;
+          try {
+            ifcType = object.getIfcType(expressID);
+          } catch (e) {
+            // web-ifc-three's internal types map can be unpopulated for a given
+            // model (often from reusing the singleton IFCLoader across uploads
+            // without disposing the previous model). Don't let one lookup
+            // failure crash the whole BIM load — just bucket as "Other".
+            console.warn(`[BIM] getIfcType(${expressID}) failed`, e);
+          }
           const category = categorizeIfcType(ifcType);
           const elementName = `${ifcType || "IFC"} #${expressID}`;
           categoryCounts[category] = (categoryCounts[category] || 0) + 1;
@@ -762,21 +766,19 @@ export default function useModelLoader(sceneData, props) {
           categoryMap.get(category).push(elementName);
         }
 
-        const hasVertexColors = Boolean(child.geometry?.attributes?.color);
-        const makeMat = (color) =>
+        const GREY = 0x9a9a9a; // pick whatever shade of grey you want
+
+        const makeMat = () =>
           new THREE.MeshStandardMaterial({
-            color: hasVertexColors ? 0xffffff : color,
-            vertexColors: hasVertexColors,
+            color: GREY,
+            vertexColors: false,
             roughness: 0.8,
             metalness: 0.05,
-            side: THREE.DoubleSide, // IFC faces are often inverted
+            side: THREE.DoubleSide,
           });
-        // A merged web-ifc IFCModel keeps one material per original IFC
-        // surface style across its geometry groups — preserve that array
-        // instead of collapsing it to a single flat colour.
         child.material = Array.isArray(child.material)
-          ? child.material.map((mat, i) => makeMat(bimColorFor(child, mat, i)))
-          : makeMat(bimColorFor(child));
+          ? child.material.map(() => makeMat())
+          : makeMat();
 
         // Thin dark edge lines give the clean "technical drawing" look
         // (like IFCtoFDS) without removing the per-element colors that
@@ -1249,31 +1251,26 @@ export default function useModelLoader(sceneData, props) {
     const colorAttr = pcModel.geometry.attributes.color;
 
     if (next) {
-  
-        setIsSegmenting(true);
-        
-          try {
-            if (!colorRefs.segment){
-            colorRefs.segment = ransacSegment(pcModel.geometry);
-         
-          }
-          colorAttr.array.set(colorRefs.segment);
-          colorAttr.needsUpdate = true;
-          setIsSegmented(true);
-          } catch (e) {
+      setIsSegmenting(true);
+
+      try {
+        if (!colorRefs.segment) {
+          colorRefs.segment = ransacSegment(pcModel.geometry);
+        }
+        colorAttr.array.set(colorRefs.segment);
+        colorAttr.needsUpdate = true;
+        setIsSegmented(true);
+      } catch (e) {
         console.error("RANSAC failed:", e);
         setIsSegmented(false);
       } finally {
-          setIsSegmenting(false);
-      
+        setIsSegmenting(false);
       }
-
     } else {
       colorAttr.array.set(colorRefs.original);
       colorAttr.needsUpdate = true;
       setIsSegmented(false);
     }
-
   }, [pcModel, isSegmented]);
 
   // ─── Visibility ────────────────────────────────────────────────────────────
