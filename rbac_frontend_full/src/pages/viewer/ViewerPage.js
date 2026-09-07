@@ -177,8 +177,24 @@ export default function ViewerPage({
       pickByExtension(items, [".fbx", ".ifc", ".ply"]) ||
       items?.[0];
 
-    const bimItem = latestByFlag(uploads.bim);
-    const pointItem = latestByFlag(uploads.pc);
+    // Fall back to the most recent upload at-or-before dateKey when this
+    // type has nothing dated exactly on the selected day — e.g. a point
+    // cloud re-uploaded later than the BIM model shouldn't make the BIM
+    // model vanish just because it isn't dated "today" too.
+    const pickWithCarryForward = (type) => {
+      const exact = latestByFlag(uploads[type]);
+      if (exact) return exact;
+      const priorDateKeys = Object.keys(grouped)
+        .filter((d) => d <= dateKey && (grouped[d][type] || []).length)
+        .sort()
+        .reverse();
+      return priorDateKeys.length
+        ? latestByFlag(grouped[priorDateKeys[0]][type])
+        : null;
+    };
+
+    const bimItem = pickWithCarryForward("bim");
+    const pointItem = pickWithCarryForward("pc");
 
     setLatestBimItem(bimItem || null);
     setLatestPointItem(pointItem || null);
