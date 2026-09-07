@@ -179,6 +179,13 @@ function ThreeViewer({
   ]);
 
   const sectionBoxActive = activePanel === "sectionBox";
+  // Lets the section-box-manager effect (below) check whether the box is
+  // currently open without needing `activePanel` in its dependency array —
+  // that array is driven by scene/model readiness, not by panel toggling.
+  const activePanelRef = useRef(activePanel);
+  useEffect(() => {
+    activePanelRef.current = activePanel;
+  }, [activePanel]);
 
   const sceneData = useSceneSetup(mountRef);
 
@@ -457,6 +464,47 @@ function ThreeViewer({
   // Whether the visual crop box (edges/handles) is shown. Clipping stays on
   // regardless — this just hides the blue box for a clean view.
   const [boxVisible, setBoxVisible] = useState(true);
+
+  // Create (and keep in sync with) the SectionBoxManager that drives the blue
+  // crop box + clipping planes. `sectionManagerRef` was previously left
+  // unassigned, so the section box toggle silently no-op'd — this rebuilds
+  // the manager whenever the scene becomes ready or the loaded models change,
+  // so its extents always match what's actually in the scene.
+  useEffect(() => {
+    if (!sceneData.sceneReady) return;
+    const scene = sceneData.sceneRef?.current;
+    const camera = sceneData.cameraRef?.current;
+    const renderer = sceneData.rendererRef?.current;
+    const domElement = renderer?.domElement;
+    if (!scene || !camera || !renderer || !domElement) return;
+
+    const objects = [modelData.bimModel, modelData.pcModel].filter(Boolean);
+    const manager = new SectionBoxManager({
+      scene,
+      camera,
+      renderer,
+      domElement,
+      objects,
+      onExtentsChange: setClipState,
+    });
+    sectionManagerRef.current = manager;
+    manager.setBoxVisible(boxVisible);
+    if (activePanelRef.current === "sectionBox") manager.enable();
+
+    return () => {
+      manager.dispose();
+      if (sectionManagerRef.current === manager) {
+        sectionManagerRef.current = null;
+      }
+    };
+  }, [
+    sceneData.sceneReady,
+    sceneData.sceneRef,
+    sceneData.cameraRef,
+    sceneData.rendererRef,
+    modelData.bimModel,
+    modelData.pcModel,
+  ]);
 
   // Adapter so <ClipBar> can drive the section box manager directly.
   const clipData = {
