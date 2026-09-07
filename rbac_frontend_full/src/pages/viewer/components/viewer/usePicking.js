@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
+import {
+  categorizeIfcType,
+  categorizeElementName,
+} from "./useModelLoader";
 
 export default function usePicking(sceneData, modelData, props) {
   const { sceneRef, cameraRef, rendererRef } = sceneData;
@@ -332,9 +336,25 @@ export default function usePicking(sceneData, modelData, props) {
             selectedMesh.uuid,
           );
 
+          // Same category + display-name derivation the sidebar's "BIM
+          // Element Categories" breakdown uses when it builds its lists
+          // (see setupBimObject in useModelLoader.js) — so the sidebar can
+          // expand the right category and highlight this exact list entry.
+          const category =
+            expressID != null
+              ? categorizeIfcType(elementType)
+              : categorizeElementName(selectedMesh.name);
+          const elementLabel =
+            expressID != null
+              ? `${elementType || "IFC"} #${expressID}`
+              : selectedMesh.name || "Unnamed";
+
           onElementSelect?.({
             name: selectedMesh.name || "Unnamed",
             type: elementType,
+            expressID,
+            category,
+            elementLabel,
             position: worldPos.toArray(),
             rotation: [worldEuler.x, worldEuler.y, worldEuler.z],
             scale: worldScale.toArray(),

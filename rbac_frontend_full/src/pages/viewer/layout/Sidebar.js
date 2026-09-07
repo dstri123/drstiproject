@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from "react";
+import React, { useRef, useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Eye, EyeOff, Trash2, ArrowLeft } from "lucide-react";
 import ElementMetadata from "../components/metadata/ElementMetadata";
@@ -62,6 +62,8 @@ export default function ContextPanel(props) {
     // whichever element is currently selected.
     overlapCounts,
     bimCategories = {},
+    hiddenElementNames,
+    onToggleElementVisibility,
     bimPoints,
     pcPoints,
     sectionBoxActive,
@@ -197,6 +199,13 @@ export default function ContextPanel(props) {
                           key={category}
                           category={category}
                           names={names}
+                          highlightName={
+                            selectedElement?.category === category
+                              ? selectedElement.elementLabel
+                              : null
+                          }
+                          hiddenNames={hiddenElementNames}
+                          onToggleVisibility={onToggleElementVisibility}
                         />
                       ))}
                   </div>
@@ -1018,8 +1027,34 @@ function ModelCard({ label, name, visible, accent, onToggle, onDelete }) {
   );
 }
 
-function CategoryDropdown({ category, names }) {
+function CategoryDropdown({
+  category,
+  names,
+  highlightName,
+  hiddenNames,
+  onToggleVisibility,
+}) {
   const [open, setOpen] = useState(false);
+  const highlightRef = useRef(null);
+
+  // Clicking an element in the 3D view auto-expands its category here and
+  // scrolls the matching row into view, so the sidebar always shows exactly
+  // which element (by name) within the category was just selected.
+  useEffect(() => {
+    if (!highlightName) return;
+    setOpen(true);
+  }, [highlightName]);
+
+  // Runs again once `open` flips true: when the category was collapsed at
+  // click time, the list (and this ref) doesn't exist yet during the same
+  // effect pass that requests the expand above — it only mounts on the
+  // render triggered by that setOpen(true), so scrolling has to wait for it.
+  useEffect(() => {
+    if (highlightName && open && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [highlightName, open]);
+
   return (
     <div style={{ borderBottom: "1px solid #f1f5f9" }}>
       <button
@@ -1058,22 +1093,64 @@ function CategoryDropdown({ category, names }) {
             background: "#fafafa",
           }}
         >
-          {names.map((name, i) => (
-            <li
-              key={`${name}-${i}`}
-              title={name}
-              style={{
-                padding: "4px 14px",
-                fontSize: 10.5,
-                color: "#4b5563",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {name}
-            </li>
-          ))}
+          {names.map((name, i) => {
+            const isHighlighted = name === highlightName;
+            const isHidden = hiddenNames?.has(name);
+            return (
+              <li
+                key={`${name}-${i}`}
+                ref={isHighlighted ? highlightRef : null}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 6,
+                  padding: "4px 8px 4px 14px",
+                  background: isHighlighted ? "#dbeafe" : "transparent",
+                }}
+              >
+                <span
+                  title={name}
+                  style={{
+                    fontSize: 10.5,
+                    color: isHidden
+                      ? "#c1c7d0"
+                      : isHighlighted
+                        ? "#1d4ed8"
+                        : "#4b5563",
+                    fontWeight: isHighlighted ? 700 : 400,
+                    fontStyle: isHidden ? "italic" : "normal",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    minWidth: 0,
+                  }}
+                >
+                  {name}
+                </span>
+                <button
+                  type="button"
+                  title={isHidden ? "Show element" : "Hide element"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleVisibility?.(name);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 2,
+                    flexShrink: 0,
+                    color: isHidden ? "#9ca3af" : "#6b7280",
+                  }}
+                >
+                  {isHidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

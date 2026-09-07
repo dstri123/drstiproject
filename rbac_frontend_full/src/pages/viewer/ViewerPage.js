@@ -6,6 +6,7 @@ import { createProjectSlug, getProjectIdFromSlug } from "@/lib/utils";
 import API from "../../api/axios";
 import Layout from "./layout/Layout";
 import ThreeViewer from "./components/viewer/ThreeViewer";
+import { applyHiddenElements } from "./components/viewer/elementVisibility";
 import { useToast } from "../../components/ToastContainer";
 
 export default function ViewerPage({
@@ -592,6 +593,28 @@ resolveRemoteUrl(matrixItem.file),
   const [overlapElementCount, setOverlapElementCount] = useState(0);
   const [overlapElementNames, setOverlapElementNames] = useState([]); // NEW
 
+  // Per-element show/hide, toggled by the eye icon on each row of the
+  // sidebar's BIM Element Categories list. Keyed by the same display label
+  // shown there (see useModelLoader.js / usePicking.js for how it's built).
+  const [hiddenElementNames, setHiddenElementNames] = useState(() => new Set());
+  const toggleElementVisibility = useCallback((name) => {
+    setHiddenElementNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+  // A newly loaded model starts with everything visible — old hidden names
+  // may not even mean the same element (express IDs are reused per file), so
+  // don't carry them over.
+  useEffect(() => {
+    setHiddenElementNames(new Set());
+  }, [bimModel]);
+  useEffect(() => {
+    applyHiddenElements(bimModel, hiddenElementNames);
+  }, [bimModel, hiddenElementNames]);
+
   // Explicit, user-initiated: send the viewer's own live voxel-hash overlap
   // check (the same numbers shown as "Overlapping Elements" / "Overlap by
   // Category") to the backend, so the Progress Assessment page can use these
@@ -689,6 +712,8 @@ resolveRemoteUrl(matrixItem.file),
         setHighlightOverlap,
         bimElementCount,
         bimCategories, // NEW
+        hiddenElementNames,
+        onToggleElementVisibility: toggleElementVisibility,
         overlapElementCount,
         overlapElementNames, // NEW
         bimPoints,
