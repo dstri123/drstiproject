@@ -134,40 +134,20 @@ export default function ProjectDetailsPage() {
     else setPointRows(updater);
   };
 
-  const markLatestVersion = async (type, rowId) => {
-    const rows = type === "bim" ? bimRows : pointRows;
-    const row = rows.find((r) => r.id === rowId);
-    if (!row) return;
+  const markLatestVersion = (type, rowId) => {
+    // Only flip the local flag and open the row for editing here — the
+    // change is committed to the server when the user clicks Save (same as
+    // any other field edit), so Save is never left disabled right after
+    // marking a row latest.
+    const updater = (items) =>
+      items.map((item) => ({
+        ...item,
+        isLatest: item.id === rowId,
+        editable: item.id === rowId ? true : item.editable,
+      }));
 
-    if (row.isNew) {
-      const updater = (items) =>
-        items.map((item) => ({
-          ...item,
-          isLatest: item.id === rowId,
-        }));
-
-      if (type === "bim") setBimRows(updater);
-      else setPointRows(updater);
-      return;
-    }
-
-    try {
-      const url =
-        type === "bim" ? `bim/${rowId}/update/` : `pointcloud/${rowId}/update/`;
-      const res = await API.put(url, { is_latest: true });
-
-      const updater = (items) =>
-        items.map((item) => ({
-          ...item,
-          isLatest: item.id === rowId ? res.data.is_latest : false,
-        }));
-
-      if (type === "bim") setBimRows(updater);
-      else setPointRows(updater);
-    } catch (err) {
-      console.error(err.response?.data || err);
-      error("Unable to save latest version setting.");
-    }
+    if (type === "bim") setBimRows(updater);
+    else setPointRows(updater);
   };
 
   const saveRow = async (type, row) => {
