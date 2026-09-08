@@ -244,6 +244,14 @@ class ProgressAssessment(models.Model):
     project = models.ForeignKey(
         'projects.Project', on_delete=models.CASCADE, related_name='assessments'
     )
+    # Which registered BIM<->PointCloud pair this assessment belongs to, so
+    # Progress Assessment can show the elements/charts/history for exactly
+    # the pair row the user selected, instead of aggregating everything
+    # saved for the project.
+    alignment_pair = models.ForeignKey(
+        'AlignmentPair', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='assessments'
+    )
     bim = models.ForeignKey(
         BIMData, on_delete=models.SET_NULL, null=True, blank=True
     )

@@ -13,6 +13,7 @@ from .views import (
     ProgressAnalyzeView,
     ProgressSaveView,
     ProgressHistoryView,
+    ProgressPairAssessmentView,
     AlignmentPairView,
     AlignmentPairListView,
     OverlapSnapshotSaveView,
@@ -55,6 +56,8 @@ urlpatterns = [
     path('progress/save/', ProgressSaveView.as_view(), name='progress-save'),
     path('progress/history/<int:project_id>/', ProgressHistoryView.as_view(),
          name='progress-history'),
+    path('progress/pair/<int:pair_id>/latest/', ProgressPairAssessmentView.as_view(),
+         name='progress-pair-latest'),
 
     # BIM <-> Point Cloud alignment pairs
     path('alignment/pair/', AlignmentPairView.as_view(), name='alignment-pair'),
