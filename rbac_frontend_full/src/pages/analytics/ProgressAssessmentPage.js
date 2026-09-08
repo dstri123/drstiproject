@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
 import IconToolbar from "../viewer/layout/IconToolbar";
@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   AlertCircle,
   Eye,
+  RefreshCw,
 } from "lucide-react";
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
@@ -2513,6 +2514,14 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
   // matched <Route>.
   const params = useParams();
   const routeParam = routeParamProp ?? params.slug;
+  // PersistentWorkspace mounts this page once per project and keeps it alive
+  // (hidden, not destroyed) when the user switches to the Viewer/Analytics
+  // tab or navigates off to manage BIM/Point Cloud uploads — so the initial
+  // bim/pc/pairs fetch below only ever runs once unless we also re-run it
+  // when the URL comes back to /progress/..., otherwise a newly-marked
+  // "latest" upload never shows up here without a full page reload.
+  const location = useLocation();
+  const isActiveTab = /^\/progress\//.test(location.pathname);
   const toast = useToast();
   const role = localStorage.getItem("role") || "viewer";
 
@@ -2590,34 +2599,168 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
       });
   }, [routeParam, leadingId]);
 
-  useEffect(() => {
+  const loadBimPcPairs = () => {
     if (!projectId) return;
     Promise.all([
       API.get(`projects/${projectId}/bim/`),
       API.get(`projects/${projectId}/pointcloud/`),
-      API.get(`processing/progress/history/${projectId}/`).catch(() => ({
-        data: [],
-      })),
       API.get(`processing/alignment/pairs/${projectId}/`).catch(() => ({
         data: [],
       })),
-    ]).then(([b, p, h, pr]) => {
+    ]).then(([b, p, pr]) => {
       setBimList(b.data || []);
       setPcList(p.data || []);
-      setHistory(h.data || []);
       setPairs(pr.data || []);
     });
+  };
+
+  useEffect(() => {
+    loadBimPcPairs();
+    // eslint-disable-next-line
   }, [projectId]);
 
-  const selectPair = (pid) => {
+  // Re-fetch whenever the user comes back to the Progress tab (rather than
+  // only on first mount) so a BIM/Point Cloud marked "latest" from the
+  // project's file-management page while this tab was in the background is
+  // picked up without needing a full page reload.
+  const wasActiveRef = useRef(isActiveTab);
+  useEffect(() => {
+    if (isActiveTab && !wasActiveRef.current) loadBimPcPairs();
+    wasActiveRef.current = isActiveTab;
+    // eslint-disable-next-line
+  }, [isActiveTab, projectId]);
+
+  // The BIM/Point Cloud upload ("Data Upload") page can live in a separate
+  // browser tab/window rather than being navigated to in-app, so the route
+  // change above never fires. Re-fetch on window focus / tab visibility too,
+  // so returning to this tab after marking a new upload "latest" elsewhere
+  // always picks it up.
+  useEffect(() => {
+    const onFocus = () => {
+      if (isActiveTab) loadBimPcPairs();
+    };
+    const onVisible = () => {
+      if (!document.hidden && isActiveTab) loadBimPcPairs();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line
+  }, [isActiveTab, projectId]);
+
+  // The current "latest" BIM and latest Point Cloud for this project — a new
+  // scan upload flips its is_latest flag before anyone visits the viewer to
+  // formally register an AlignmentPair for it, so the page needs to be able
+  // to point at this combination even when it has no pair row yet.
+  const latestBimItem = useMemo(
+    () => bimList.find((b) => b.is_latest) || null,
+    [bimList],
+  );
+  const latestPcItem = useMemo(
+    () => pcList.find((p) => p.is_latest) || null,
+    [pcList],
+  );
+  const latestPairRegistered = useMemo(
+    () =>
+      !!latestBimItem &&
+      !!latestPcItem &&
+      pairs.some(
+        (p) =>
+          String(p.bim_id) === String(latestBimItem.id) &&
+          String(p.pointcloud_id) === String(latestPcItem.id),
+      ),
+    [pairs, latestBimItem, latestPcItem],
+  );
+
+  // Always default the "Selected Registered Pair" section to the latest
+  // BIM + latest Point Cloud — as an existing registered pair if one already
+  // covers them, otherwise as an unregistered "latest" selection so the user
+  // can Analyze + Save Assessment right away (saving registers the pair
+  // automatically).
+  useEffect(() => {
+    if (!latestBimItem || !latestPcItem) return;
+    const existingPair = pairs.find(
+      (p) =>
+        String(p.bim_id) === String(latestBimItem.id) &&
+        String(p.pointcloud_id) === String(latestPcItem.id),
+    );
+    if (existingPair) {
+      if (String(pairId) !== String(existingPair.id))
+        selectPair(String(existingPair.id));
+    } else if (
+      pairId !== "latest" ||
+      String(bimId) !== String(latestBimItem.id) ||
+      String(pcId) !== String(latestPcItem.id)
+    ) {
+      selectPair("latest");
+    }
+    // eslint-disable-next-line
+  }, [pairs, latestBimItem, latestPcItem]);
+
+  const selectPair = async (pid) => {
     setPairId(pid);
+    setResult(null);
+    setHistory([]);
+
+    if (pid === "latest") {
+      // Unregistered latest BIM/PC combo — no pair id to look up saved
+      // elements/charts or history against yet.
+      setBimId(latestBimItem ? String(latestBimItem.id) : "");
+      setPcId(latestPcItem ? String(latestPcItem.id) : "");
+      return;
+    }
+
     const pair = pairs.find((p) => String(p.id) === String(pid));
-    if (pair) {
-      setBimId(String(pair.bim_id));
-      setPcId(String(pair.pointcloud_id));
-    } else {
+    if (!pair) {
       setBimId("");
       setPcId("");
+      return;
+    }
+    setBimId(String(pair.bim_id));
+    setPcId(String(pair.pointcloud_id));
+
+    // Load this pair's own saved elements/charts and progress-over-time
+    // history — not the whole project's — so switching rows shows exactly
+    // what was saved for that BIM/scan-date combination.
+    try {
+      const [saved, h] = await Promise.all([
+        API.get(`processing/progress/pair/${pid}/latest/`),
+        API.get(`processing/progress/history/${projectId}/?pair_id=${pid}`),
+      ]);
+      if (saved.data?.elements?.length) setResult(saved.data);
+      setHistory(h.data || []);
+    } catch {
+      // No saved assessment yet for this pair — leave result/history empty
+      // until the user runs Analyze.
+    }
+  };
+
+  // Explicitly register the current "latest" BIM/Point Cloud combo as its
+  // own alignment pair, without having to run Analyze + Save Assessment
+  // first (that path also registers it, but this is faster when someone
+  // just wants the pair to exist as a row in the table).
+  const [registering, setRegistering] = useState(false);
+  const registerLatestPair = async () => {
+    if (!bimId || !pcId) return;
+    setRegistering(true);
+    try {
+      const res = await API.post("processing/alignment/pair/", {
+        project_id: projectId,
+        bim_id: bimId,
+        pointcloud_id: pcId,
+        method: "manual",
+      });
+      toast.success("Pair registered.");
+      const prRes = await API.get(`processing/alignment/pairs/${projectId}/`);
+      setPairs(prRes.data || []);
+      if (res.data?.pair_id) await selectPair(String(res.data.pair_id));
+    } catch (e) {
+      toast.error(e.response?.data?.error || "Failed to register pair.");
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -2663,16 +2806,33 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
     if (!result?.elements?.length) return;
     setSaving(true);
     try {
-      await API.post("processing/progress/save/", {
+      const res = await API.post("processing/progress/save/", {
         project_id: projectId,
         bim_id: bimId,
         pointcloud_id: pcId,
+        // "latest" is a client-side sentinel for "not registered yet" — the
+        // backend resolves the real pair from bim_id/pointcloud_id instead
+        // and auto-registers one if it doesn't exist.
+        pair_id: pairId === "latest" ? null : pairId,
         summary: result.summary,
         elements: result.elements,
       });
       toast.success("Assessment saved.");
-      const h = await API.get(`processing/progress/history/${projectId}/`);
-      setHistory(h.data || []);
+
+      const savedPairId = res.data?.pair_id ? String(res.data.pair_id) : "";
+      // Refresh pairs so a pair auto-registered by this save (a new scan
+      // date analyzed without visiting the viewer first) shows up as its
+      // own row, then re-select it so the table highlight and history
+      // reflect what was just saved.
+      const prRes = await API.get(`processing/alignment/pairs/${projectId}/`);
+      setPairs(prRes.data || []);
+      if (savedPairId) {
+        setPairId(savedPairId);
+        const h = await API.get(
+          `processing/progress/history/${projectId}/?pair_id=${savedPairId}`,
+        );
+        setHistory(h.data || []);
+      }
     } catch (e) {
       toast.error(e.response?.data?.error || "Save failed.");
     } finally {
@@ -2804,6 +2964,13 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                   style={{ ...selectStyle, minWidth: 340 }}
                 >
                   <option value="">Select a registered pair…</option>
+                  {latestBimItem && latestPcItem && !latestPairRegistered && (
+                    <option value="latest">
+                      BIM {fmtDate(latestBimItem.date)} ↔ PC{" "}
+                      {fmtDate(latestPcItem.date)} · latest (not yet
+                      registered)
+                    </option>
+                  )}
                   {pairs.map((pr) => (
                     <option key={pr.id} value={pr.id}>
                       BIM {fmtDate(pr.bim_date)} ↔ PC{" "}
@@ -2815,6 +2982,25 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                   ))}
                 </select>
               </Field>
+              <button
+                onClick={loadBimPcPairs}
+                title="Refresh BIM/Point Cloud uploads and registered pairs (picks up changes made on the Data Upload page)"
+                style={{ ...primaryBtn, background: "#64748b" }}
+              >
+                <RefreshCw size={14} />
+                Refresh
+              </button>
+              {pairId === "latest" && (
+                <button
+                  onClick={registerLatestPair}
+                  disabled={registering}
+                  title="Register this BIM/Point Cloud combination as its own alignment pair"
+                  style={{ ...primaryBtn, background: "#7c3aed" }}
+                >
+                  <CheckCircle2 size={14} />
+                  {registering ? "Registering…" : "Register Pair"}
+                </button>
+              )}
               <button
                 onClick={runAnalysis}
                 disabled={analyzing}
@@ -2851,6 +3037,8 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                 {` (${bimList.length} BIM · ${pcList.length} point-cloud uploads).`}
                 {!pairs.length &&
                   " Align a BIM + point cloud, then click \"Save Alignment Pair\" in the viewer's Actions panel to create a pair."}
+                {pairId === "latest" &&
+                  " Showing the latest BIM/point-cloud upload — it isn't a registered pair yet; Analyze then Save Assessment to register it."}
               </span>
             </div>
 

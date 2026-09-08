@@ -68,6 +68,11 @@ export default function useAlignment(sceneData, modelData, props) {
 
   const [matrix, setMatrix] = useState(null);
   const appliedPcModelRef = useRef(null);
+  // Nested-array matrix last actually applied to appliedPcModelRef.current —
+  // tracked by value (not just by the point-cloud model instance) so a
+  // corrected Matrix File re-uploaded and marked "latest" for the same,
+  // already-loaded point cloud gets applied too, not silently ignored.
+  const appliedMatrixRef = useRef(null);
 
   // Once BIM + point cloud are registered to each other, they form one rigid
   // unit. Compute their shared common point (combined world centre) and notify
@@ -162,9 +167,26 @@ export default function useAlignment(sceneData, modelData, props) {
   // re-applies it, but a later manual gizmo nudge isn't fought.
   useEffect(() => {
     if (!pcModel || !uploadedAlignmentMatrix) return;
-    if (appliedPcModelRef.current === pcModel) return;
-    appliedPcModelRef.current = pcModel;
+    const sameModel = appliedPcModelRef.current === pcModel;
+    const sameMatrix =
+      sameModel &&
+      appliedMatrixRef.current &&
+      JSON.stringify(appliedMatrixRef.current) ===
+        JSON.stringify(uploadedAlignmentMatrix);
+    if (sameMatrix) return;
+
+    // applyMatrix4 composes onto the model's CURRENT transform rather than
+    // replacing it — if this same point cloud already had an earlier
+    // uploaded matrix applied (e.g. a corrected alignment matrix was
+    // re-uploaded and marked latest without the point cloud itself
+    // changing), undo that one first so the two don't stack.
+    if (sameModel && appliedMatrixRef.current) {
+      pcModel.applyMatrix4(matrix4FromNested(appliedMatrixRef.current).invert());
+    }
+
     applyMatrixToModel(uploadedAlignmentMatrix);
+    appliedPcModelRef.current = pcModel;
+    appliedMatrixRef.current = uploadedAlignmentMatrix;
     lockAlignment();
     setMatrix(uploadedAlignmentMatrix);
     onMatrixChange?.(uploadedAlignmentMatrix);

@@ -916,13 +916,13 @@ class ProgressSaveView(APIView):
     """
     POST /api/v1/processing/progress/save/
     Persists an assessment (header + per-element rows) for historical tracking.
-    Body: { project_id, bim_id, pointcloud_id, summary, elements }
+    Body: { project_id, bim_id, pointcloud_id, pair_id?, summary, elements }
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from projects.models import Project, BIMData, PointCloudData
-        from .models import ProgressAssessment, ProgressElement
+        from .models import ProgressAssessment, ProgressElement, AlignmentPair
 
         data = request.data or {}
         project_id = data.get("project_id")
@@ -939,8 +939,38 @@ class ProgressSaveView(APIView):
         bim = BIMData.objects.filter(id=data.get("bim_id")).first()
         pc = PointCloudData.objects.filter(id=data.get("pointcloud_id")).first()
 
+        # Prefer the pair the user explicitly selected on the Progress
+        # Assessment page; fall back to looking one up by bim/pointcloud so
+        # older frontend bundles (or a client-side "not registered yet"
+        # sentinel) still link correctly.
+        pair = None
+        raw_pair_id = data.get("pair_id")
+        if raw_pair_id not in (None, ""):
+            try:
+                pair = AlignmentPair.objects.filter(
+                    id=int(raw_pair_id), project=project
+                ).first()
+            except (TypeError, ValueError):
+                pair = None
+        if not pair and bim and pc:
+            # No pair was ever explicitly registered for this BIM/PointCloud
+            # combination (e.g. a new scan date was uploaded and analyzed
+            # straight from Progress Assessment without visiting the viewer's
+            # "Save Alignment Pair" action first) — saving an assessment for
+            # it registers the pair automatically so it appears as its own
+            # row going forward.
+            pair, _ = AlignmentPair.objects.get_or_create(
+                bim=bim, pointcloud=pc,
+                defaults={
+                    "project": project,
+                    "bim_date": bim.date,
+                    "pointcloud_date": pc.date,
+                },
+            )
+
         assessment = ProgressAssessment.objects.create(
             project=project,
+            alignment_pair=pair,
             bim=bim,
             pointcloud=pc,
             bim_date=bim.date if bim else None,
@@ -968,24 +998,35 @@ class ProgressSaveView(APIView):
         ]
         ProgressElement.objects.bulk_create(rows, batch_size=500)
 
-        return Response({"message": "Assessment saved", "assessment_id": assessment.id})
+        return Response({
+            "message": "Assessment saved",
+            "assessment_id": assessment.id,
+            "pair_id": pair.id if pair else None,
+        })
 
 
 class ProgressHistoryView(APIView):
     """
-    GET /api/v1/processing/progress/history/<project_id>/
+    GET /api/v1/processing/progress/history/<project_id>/?pair_id=<id>
     Saved assessments for a project (for the progress-over-time trend).
+    Pass ?pair_id= to scope the trend to one registered alignment pair —
+    each pair (e.g. a later Point Cloud scan registered against the same
+    BIM) tracks its own history rather than sharing the whole project's.
     """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, project_id):
         from .models import ProgressAssessment
         rows = ProgressAssessment.objects.filter(project_id=project_id)
+        pair_id = request.query_params.get("pair_id")
+        if pair_id:
+            rows = rows.filter(alignment_pair_id=pair_id)
         data = [{
             "id": a.id,
             "created_at": a.created_at,
             "bim_date": a.bim_date,
             "pointcloud_date": a.pointcloud_date,
+            "alignment_pair_id": a.alignment_pair_id,
             "total_elements": a.total_elements,
             "completed_elements": a.completed_elements,
             "in_progress_elements": a.in_progress_elements,
@@ -993,6 +1034,58 @@ class ProgressHistoryView(APIView):
             "overall_completion": a.overall_completion,
         } for a in rows]
         return Response(data)
+
+
+class ProgressPairAssessmentView(APIView):
+    """
+    GET /api/v1/processing/progress/pair/<pair_id>/latest/
+    Returns the most recently saved assessment for one registered alignment
+    pair, reconstructed into the same { elements, summary, categories } shape
+    the analyze endpoint returns, so selecting a pair row can show its saved
+    elements/charts immediately without re-running Analyze.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pair_id):
+        from .models import ProgressAssessment, ProgressElement
+        from .progress import _by_category
+
+        assessment = (
+            ProgressAssessment.objects.filter(alignment_pair_id=pair_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if not assessment:
+            return Response({"elements": [], "summary": None, "categories": []})
+
+        elements = [{
+            "element_id": e.element_id,
+            "element_type": e.element_type,
+            "category": e.category,
+            "name": e.name,
+            "bim_volume": e.bim_volume,
+            "bim_points": e.bim_points,
+            "overlap_points": e.overlap_points,
+            "completion": e.completion,
+            "status": e.status,
+        } for e in ProgressElement.objects.filter(assessment=assessment)]
+
+        summary = {
+            "total": assessment.total_elements,
+            "completed": assessment.completed_elements,
+            "in_progress": assessment.in_progress_elements,
+            "not_started": assessment.not_started_elements,
+            "overall_completion": assessment.overall_completion,
+        }
+
+        return Response({
+            "assessment_id": assessment.id,
+            "saved_at": assessment.created_at,
+            "elements": elements,
+            "summary": summary,
+            "categories": _by_category(elements),
+            "warnings": [],
+        })
 
 
 # ─── Alignment Pairs ───────────────────────────────────────────────────────────
@@ -1118,6 +1211,8 @@ class AlignmentPairListView(APIView):
                 or (p.pointcloud.date if p.pointcloud else None),
                 "bim_description": p.bim.description if p.bim else "",
                 "pointcloud_description": p.pointcloud.description if p.pointcloud else "",
+                "bim_is_latest": bool(p.bim.is_latest) if p.bim else False,
+                "pointcloud_is_latest": bool(p.pointcloud.is_latest) if p.pointcloud else False,
                 "method": p.method,
                 "fitness": p.fitness,
                 "rmse": p.rmse,
