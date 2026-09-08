@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { createProjectSlug, getProjectIdFromSlug } from "@/lib/utils";
 import API from "../../api/axios";
@@ -18,6 +18,7 @@ export default function ViewerPage({
   // route param so ViewerPage still works if ever rendered directly by a
   // matched <Route>.
   const params = useParams();
+  const location = useLocation();
   const projectSlug = projectSlugProp ?? params.projectSlug;
   const [resolvedProjectId, setResolvedProjectId] = useState(() =>
     getProjectIdFromSlug(projectSlug),
@@ -113,6 +114,48 @@ export default function ViewerPage({
     return { url, name, transform };
   };
 
+  const applyCameraItem = async (cameraItem) => {
+    if (!cameraItem?.file) {
+      setCameraPositionsFile(null);
+      setCameraFileName(null);
+      return;
+    }
+    try {
+      const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
+        responseType: "blob",
+      });
+      setCameraPositionsFile(camResponse.data);
+      const rawName = cameraItem.file.split("?")[0].split("/").pop();
+      setCameraFileName(decodeURIComponent(rawName) || "camera.txt");
+    } catch (camErr) {
+      console.error("Failed to load camera positions file", camErr);
+      setCameraPositionsFile(null);
+      setCameraFileName(null);
+    }
+  };
+
+  const applyMatrixItem = async (matrixItem) => {
+    if (!matrixItem?.file) {
+      setUploadedAlignmentMatrix(null);
+      return;
+    }
+    try {
+      const matResp = await fetchWithRetry(resolveRemoteUrl(matrixItem.file));
+      const matJson = await matResp.json();
+      const isValid4x4 =
+        Array.isArray(matJson) &&
+        matJson.length === 4 &&
+        matJson.every((row) => Array.isArray(row) && row.length === 4);
+      setUploadedAlignmentMatrix(isValid4x4 ? matJson : null);
+      if (!isValid4x4) {
+        console.warn("Matrix file is not a 4x4 array", matJson);
+      }
+    } catch (matErr) {
+      console.warn("Failed to load matrix file", matErr);
+      setUploadedAlignmentMatrix(null);
+    }
+  };
+
   const getLatestBatchImages = (images) => {
     if (!Array.isArray(images) || images.length === 0) return [];
     const batches = images.reduce((map, item) => {
@@ -142,29 +185,46 @@ export default function ViewerPage({
   };
 
   const getItemDateValue = (item) => {
+    // Prefer the user-set "date" field (the one shown/edited in the data
+    // admin table) over the server's auto-recorded upload timestamp — camera
+    // and matrix files carry both, and grouping by the real upload instant
+    // instead of the logical date would silently split them from the BIM/PC
+    // uploads they're meant to line up with.
     return (
-      item.uploaded_at || item.date || item.created_at || item.updated_at || ""
+      item.date || item.uploaded_at || item.created_at || item.updated_at || ""
     );
   };
 
-  const buildUploadsByDate = (bimItems, pcItems) => {
+  const buildUploadsByDate = (bimItems, pcItems, cameraItems, matrixItems) => {
     const groups = {};
 
     const addToGroup = (type, item) => {
       const dateKey = toDateStr(getItemDateValue(item));
       if (!dateKey) return;
-      groups[dateKey] = groups[dateKey] || { bim: [], pc: [] };
+      groups[dateKey] = groups[dateKey] || {
+        bim: [],
+        pc: [],
+        camera: [],
+        matrix: [],
+      };
       groups[dateKey][type].push(item);
     };
 
     (bimItems || []).forEach((item) => addToGroup("bim", item));
     (pcItems || []).forEach((item) => addToGroup("pc", item));
+    (cameraItems || []).forEach((item) => addToGroup("camera", item));
+    (matrixItems || []).forEach((item) => addToGroup("matrix", item));
 
     return groups;
   };
 
-  const loadDateUploads = (dateKey, grouped) => {
-    const uploads = grouped[dateKey] || { bim: [], pc: [] };
+  const loadDateUploads = async (dateKey, grouped) => {
+    const uploads = grouped[dateKey] || {
+      bim: [],
+      pc: [],
+      camera: [],
+      matrix: [],
+    };
 
     const pickByExtension = (items, exts) =>
       (items || []).find((item) => {
@@ -177,24 +237,15 @@ export default function ViewerPage({
       pickByExtension(items, [".fbx", ".ifc", ".ply"]) ||
       items?.[0];
 
-    // Fall back to the most recent upload at-or-before dateKey when this
-    // type has nothing dated exactly on the selected day — e.g. a point
-    // cloud re-uploaded later than the BIM model shouldn't make the BIM
-    // model vanish just because it isn't dated "today" too.
-    const pickWithCarryForward = (type) => {
-      const exact = latestByFlag(uploads[type]);
-      if (exact) return exact;
-      const priorDateKeys = Object.keys(grouped)
-        .filter((d) => d <= dateKey && (grouped[d][type] || []).length)
-        .sort()
-        .reverse();
-      return priorDateKeys.length
-        ? latestByFlag(grouped[priorDateKeys[0]][type])
-        : null;
-    };
-
-    const bimItem = pickWithCarryForward("bim");
-    const pointItem = pickWithCarryForward("pc");
+    // This is the calendar's explicit "browse a specific date" view — it
+    // shows only what was actually uploaded on that exact day (no carry-
+    // forward from other dates), so it accurately reflects that day's
+    // upload history. The default/current view (loadProjectAssets) is
+    // handled separately and always follows each type's LATEST flag.
+    const bimItem = latestByFlag(uploads.bim);
+    const pointItem = latestByFlag(uploads.pc);
+    const cameraItem = latestByFlag(uploads.camera);
+    const matrixItem = latestByFlag(uploads.matrix);
 
     setLatestBimItem(bimItem || null);
     setLatestPointItem(pointItem || null);
@@ -212,6 +263,11 @@ export default function ViewerPage({
     } else {
       setPointFile(null);
     }
+
+    await Promise.all([
+      applyCameraItem(cameraItem),
+      applyMatrixItem(matrixItem),
+    ]);
   };
 
   const loadProjectAssets = async () => {
@@ -261,74 +317,6 @@ export default function ViewerPage({
       const latestImages = getLatestBatchImages(images);
       setCameraImages(latestImages.length ? latestImages : images);
 
-      const batchName = latestImages[0]?.batch_name || images[0]?.batch_name;
-      const cameraItems = cameraRes.data || [];
-      const batchCameraItems = batchName
-        ? cameraItems.filter((c) => c.batch_name === batchName)
-        : cameraItems;
-      const cameraItem =
-        (batchCameraItems.length ? batchCameraItems : cameraItems).find(
-          (c) => c.is_latest,
-        ) || (batchCameraItems.length ? batchCameraItems : cameraItems)[0];
-
-      if (cameraItem?.file) {
-        try {
-          const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
-responseType: "blob",
-});
-          setCameraPositionsFile(camResponse.data);
-          // Derive a display name from the server URL
-          const rawName = cameraItem.file.split("?")[0].split("/").pop();
-          setCameraFileName(decodeURIComponent(rawName) || "camera.txt");
-        } catch (camErr) {
-          console.error("Failed to load camera positions file", camErr);
-          setCameraPositionsFile(null);
-          setCameraFileName(null);
-        }
-      } else {
-        setCameraPositionsFile(null);
-        setCameraFileName(null);
-      }
-
-      // Matrix File (.json) for the same batch — a raw 4x4 transform applied
-      // to the camera positions and the point cloud so BIM + point cloud align.
-      const matrixItems = matrixRes.data || [];
-      const batchMatrixItems = batchName
-        ? matrixItems.filter((m) => m.batch_name === batchName)
-        : matrixItems;
-      const matrixItem =
-        (batchMatrixItems.length ? batchMatrixItems : matrixItems).find(
-          (m) => m.is_latest,
-        ) || (batchMatrixItems.length ? batchMatrixItems : matrixItems)[0];
-
-      if (!matrixItem) {
-        setUploadedAlignmentMatrix(null);
-      } else if (!matrixItem.file) {
-        console.warn(
-          "Matrix item found but no file URL available.",
-          matrixItem,
-        );
-        setUploadedAlignmentMatrix(null);
-      } else {
-        try {
-const matResp = await fetchWithRetry(
-resolveRemoteUrl(matrixItem.file),
-); 
-         const matJson = await matResp.json();
-          const isValid4x4 =
-            Array.isArray(matJson) &&
-            matJson.length === 4 &&
-            matJson.every((row) => Array.isArray(row) && row.length === 4);
-          setUploadedAlignmentMatrix(isValid4x4 ? matJson : null);
-          if (!isValid4x4) {
-            console.warn("Matrix file is not a 4x4 array", matJson);
-          }
-        } catch (matErr) {
-          console.warn("Failed to load matrix file", matErr);
-          setUploadedAlignmentMatrix(null);
-        }
-      }
-
       const pickByExtension = (items, exts) =>
         (items || []).find((item) => {
           const filePath = item.file?.split("?")[0] || "";
@@ -340,47 +328,71 @@ resolveRemoteUrl(matrixItem.file),
 
       const bimItems = bimRes.data || [];
       const pcItems = pointRes.data || [];
-      const groupedByDate = buildUploadsByDate(bimItems, pcItems);
+      const cameraItems = cameraRes.data || [];
+      const matrixItems = matrixRes.data || [];
+      const groupedByDate = buildUploadsByDate(
+        bimItems,
+        pcItems,
+        cameraItems,
+        matrixItems,
+      );
       setUploadsByDate(groupedByDate);
 
       const dateKeys = Object.keys(groupedByDate).sort();
       const defaultDate = dateKeys.length ? dateKeys[dateKeys.length - 1] : "";
       setSelectedDate(defaultDate);
 
-      if (defaultDate) {
-        loadDateUploads(defaultDate, groupedByDate);
+      // The default view always shows whichever upload is flagged LATEST for
+      // each type, independent of the other types' upload dates — a BIM
+      // model, point cloud, camera-positions file, or alignment matrix
+      // uploaded on a different day than its siblings must still load.
+      // Date-bucketed browsing (loadDateUploads) only kicks in when the user
+      // explicitly picks a day from the calendar.
+      const bimItem =
+        latestByFlag(bimItems) ||
+        pickByExtension(bimItems, [".fbx", ".ifc"]) ||
+        bimItems?.[0];
+      const pointItem =
+        latestByFlag(pcItems) ||
+        pickByExtension(pcItems, [".ply"]) ||
+        pcItems?.[0];
+      const cameraItem = latestByFlag(cameraItems) || cameraItems?.[0];
+      const matrixItem = latestByFlag(matrixItems) || matrixItems?.[0];
+
+      setLatestBimItem(bimItem || null);
+      setLatestPointItem(pointItem || null);
+
+      if (bimItem?.file) {
+        const source = createRemoteSource(bimItem.file, bimItem.transform);
+        setBimFile(source ? { ...source, id: bimItem.id } : null);
       } else {
-        const bimItem =
-          latestByFlag(bimItems) ||
-          pickByExtension(bimItems, [".fbx", ".ifc"]) ||
-          bimItems?.[0];
-        const pointItem =
-          latestByFlag(pcItems) ||
-          pickByExtension(pcItems, [".ply"]) ||
-          pcItems?.[0];
-
-        setLatestBimItem(bimItem || null);
-        setLatestPointItem(pointItem || null);
-
-        if (bimItem?.file) {
-          const source = createRemoteSource(bimItem.file, bimItem.transform);
-          if (source) setBimFile({ ...source, id: bimItem.id });
-        }
-
-        if (pointItem?.file) {
-          const source = createRemoteSource(
-            pointItem.file,
-            pointItem.transform,
-          );
-          if (source) setPointFile({ ...source, id: pointItem.id });
-        }
+        setBimFile(null);
       }
+
+      if (pointItem?.file) {
+        const source = createRemoteSource(pointItem.file, pointItem.transform);
+        setPointFile(source ? { ...source, id: pointItem.id } : null);
+      } else {
+        setPointFile(null);
+      }
+
+      await Promise.all([
+        applyCameraItem(cameraItem),
+        applyMatrixItem(matrixItem),
+      ]);
     } catch (err) {
       console.error("Failed to load project assets", err);
     }
   };
 
   useEffect(() => {
+    // PersistentWorkspace keeps this page mounted forever (so switching to
+    // Analytics/Progress doesn't reload the point cloud), which means it
+    // never remounts when the user edits BIM/point-cloud data on the
+    // separate /project/:slug/data admin page and navigates back here — so
+    // refetch whenever this viewer's own route becomes active again, not
+    // just once on first mount.
+    if (!location.pathname.startsWith(`/viewer/${projectSlug}`)) return;
     loadProjectAssets();
     // loadProjectAssets re-derives the project id from projectSlug itself and
     // calls setResolvedProjectId(...) — depending on `id` here would make this
@@ -388,7 +400,7 @@ resolveRemoteUrl(matrixItem.file),
     // every request it makes (including the multi-hundred-MB point cloud
     // fetch), which is enough concurrent load to make the browser drop one of
     // the duplicate large fetches ("Failed to fetch").
-  }, [projectSlug]);
+  }, [projectSlug, location.pathname]);
 
   // Report the project/date currently loaded here up to PersistentWorkspace,
   // so the Analytics page (a separate, single-mount-per-project component)
