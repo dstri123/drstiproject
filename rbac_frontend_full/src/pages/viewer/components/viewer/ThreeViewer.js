@@ -12,6 +12,7 @@ import {
   Route,
   Table2,
   X,
+  Sparkles,
 } from "lucide-react";
 import * as THREE from "three";
 import { useToast } from "../../../../components/ToastContainer";
@@ -21,6 +22,7 @@ import usePicking from "./usePicking";
 import useAlignment from "./useAlignment";
 import useOverlap from "./useOverlap";
 import usePointCloudSAMSegmentation from "./usePointCloudSAMSegmentation";
+import useGaussianSplatting from "./useGaussianSplatting";
 import useCameraSystem from "./useCameraSystem";
 import CameraPreviewPanel from "./CameraPreviewPanel";
 import useTransformControls from "./useTransformControls";
@@ -43,7 +45,13 @@ const OSM_TILE_PROXY =
 // (no card background/shadow) — used for the Adjust Model / Section Box
 // toggles so they read as lightweight, inline tools rather than floating
 // cards.
-function FlatToolbarButton({ icon, label, onClick, active = false }) {
+function FlatToolbarButton({
+  icon,
+  label,
+  onClick,
+  active = false,
+  disabled = false,
+}) {
   const [hovered, setHovered] = useState(false);
   return (
     <div style={{ position: "relative", width: "100%" }}>
@@ -86,7 +94,9 @@ function FlatToolbarButton({ icon, label, onClick, active = false }) {
           padding: 0,
           borderRadius: 0,
           pointerEvents: "auto",
+          opacity: disabled ? 0.5 : 1,
         }}
+        disabled={disabled}
       >
         {icon}
       </button>
@@ -125,7 +135,9 @@ function ThreeViewer({
   const sectionPlaneRef = useRef(null);
   // Only one right-rail panel can be open at a time. Opening one closes
   // whichever other panel was open (matches the left IconToolbar's behavior).
-  const [activePanel, setActivePanel] = useState(null); // 'rotate' | 'sectionBox' | 'cameraTable' | 'geoMap' | null
+  const [activePanel, setActivePanel] = useState(null); // 'rotate' | 'sectionBox' | 'cameraTable' | 'geoMap' | 'gaussian' | null
+  const [gaussianPointFile, setGaussianPointFile] = useState(null);
+  const [gaussianCamerasFile, setGaussianCamerasFile] = useState(null);
   const geoMapOpen = activePanel === "geoMap";
   const [geoLocation, setGeoLocation] = useState({
     latitude: "12.9716",
@@ -1077,6 +1089,12 @@ function ThreeViewer({
 
   const cameraData = useCameraSystem(sceneData, modelData, props);
 
+  const gaussianData = useGaussianSplatting(sceneData, modelData, {
+    ...props,
+    gaussianPointFile,
+    gaussianCamerasFile,
+  });
+
   const {
     selectedCamera,
     setSelectedCamera,
@@ -1121,6 +1139,8 @@ function ThreeViewer({
   const toggleSectionBox = useCallback(() => {
     togglePanel("sectionBox");
   }, [togglePanel]);
+
+  const gaussianPanelOpen = activePanel === "gaussian";
 
   useEffect(() => {
     window.toggleSectionBox = toggleSectionBox;
@@ -1188,6 +1208,11 @@ function ThreeViewer({
       isSamRunning: samData.isRunning,
       samProgress: samData.progress,
       semanticSummary: samData.semanticSummary,
+      toggleGaussianSplatting: gaussianData.toggleGaussianSplatting,
+      isGaussianVisible: gaussianData.isGaussianVisible,
+      isGaussianLoading: gaussianData.isGaussianLoading,
+      gaussianPointCount: gaussianData.gaussianPointCount,
+      gaussianError: gaussianData.gaussianError,
     });
   }, [
     samData.toggleSemanticSegmentation,
@@ -1195,6 +1220,11 @@ function ThreeViewer({
     samData.isRunning,
     samData.progress,
     samData.semanticSummary,
+    gaussianData.toggleGaussianSplatting,
+    gaussianData.isGaussianVisible,
+    gaussianData.isGaussianLoading,
+    gaussianData.gaussianPointCount,
+    gaussianData.gaussianError,
     onModelDataChange,
   ]);
 
@@ -1435,6 +1465,17 @@ function ThreeViewer({
           />
           <FlatToolbarButton
             icon={
+              <Sparkles size={16} strokeWidth={gaussianPanelOpen ? 2.2 : 1.8} />
+            }
+            label="Gaussian splatting"
+            active={gaussianPanelOpen || gaussianData.isGaussianVisible}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePanel("gaussian");
+            }}
+          />
+          <FlatToolbarButton
+            icon={
               <Route size={16} strokeWidth={cameraPathVisible ? 2.2 : 1.8} />
             }
             label={cameraPathVisible ? "Hide camera path" : "Show camera path"}
@@ -1479,6 +1520,7 @@ function ThreeViewer({
               }
               label="Save current position & orientation"
               active={saveStatus === "saving"}
+              disabled={saveStatus === "saving"}
               onClick={(event) => {
                 event.stopPropagation();
                 info("Saving current position & orientation…");
@@ -1488,6 +1530,133 @@ function ThreeViewer({
           )}
         </div>
       </div>
+
+      {gaussianPanelOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 54,
+            zIndex: 9999,
+            width: 260,
+            padding: 14,
+            borderRadius: 12,
+            background: "rgba(255,255,255,0.98)",
+            border: "1px solid rgba(148,163,184,0.4)",
+            boxShadow: "0 16px 36px rgba(15,23,42,0.16)",
+            color: "#0f172a",
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>
+            Gaussian splatting
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#64748b",
+              lineHeight: 1.45,
+              marginBottom: 12,
+            }}
+          >
+            Uploaded project photos are sampled into image-derived Gaussian
+            splats. Add point3d.txt for an additional point-cloud layer.
+          </div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              color: "#475569",
+              marginBottom: 9,
+            }}
+          >
+            point3d.txt (optional)
+            <input
+              type="file"
+              accept=".txt"
+              onChange={(event) =>
+                setGaussianPointFile(event.target.files?.[0] || null)
+              }
+              style={{
+                display: "block",
+                width: "100%",
+                marginTop: 5,
+                fontSize: 11,
+              }}
+            />
+          </label>
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              color: "#475569",
+              marginBottom: 12,
+            }}
+          >
+            cameras.txt (optional metadata)
+            <input
+              type="file"
+              accept=".txt"
+              onChange={(event) =>
+                setGaussianCamerasFile(event.target.files?.[0] || null)
+              }
+              style={{
+                display: "block",
+                width: "100%",
+                marginTop: 5,
+                fontSize: 11,
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => gaussianData.toggleGaussianSplatting()}
+            disabled={
+              gaussianData.isGaussianLoading ||
+              (!gaussianPointFile && !props.cameraImages?.length)
+            }
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: 7,
+              border: "1px solid #c4b5fd",
+              background: gaussianData.isGaussianVisible
+                ? "#ede9fe"
+                : "#f8fafc",
+              color: "#5b21b6",
+              cursor:
+                gaussianData.isGaussianLoading ||
+                (!gaussianPointFile && !props.cameraImages?.length)
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                gaussianData.isGaussianLoading ||
+                (!gaussianPointFile && !props.cameraImages?.length)
+                  ? 0.55
+                  : 1,
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {gaussianData.isGaussianLoading
+              ? "Building splats..."
+              : gaussianData.isGaussianVisible
+                ? `Hide splats (${gaussianData.gaussianPointCount.toLocaleString()})`
+                : "Show Gaussian splats"}
+          </button>
+          {gaussianData.gaussianError && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 11,
+                color: "#b91c1c",
+                lineHeight: 1.35,
+              }}
+            >
+              {gaussianData.gaussianError}
+            </div>
+          )}
+        </div>
+      )}
 
       {geoMapOpen && (
         <div
@@ -1878,7 +2047,8 @@ function ThreeViewer({
                 }}
               >
                 <option value="">Select column</option>
-                {cameraTableColumns.map((col) => (<option key={col} value={col}>
+                {cameraTableColumns.map((col) => (
+                  <option key={col} value={col}>
                     {col}
                   </option>
                 ))}
