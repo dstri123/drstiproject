@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,6 @@ import { useToast } from "../../components/ToastContainer";
 import API from "../../api/axios";
 
 export default function PhotoUpload() {
-  const { slug } = useParams();
   const location = useLocation();
   const projectName = location.state?.projectName || null;
   // NOTE: assumes the page that navigates here passes projectId in location.state.
@@ -348,12 +347,11 @@ export default function PhotoUpload() {
         return [res.data, ...updated];
       });
       setCameraFileToUpload(null);
-      success("Camera file uploaded successfully!");
 
-      // Bring along whatever's still staged for this batch, then jump to the viewer.
+      // Bring along whatever's still staged for this batch.
       await uploadZip(selectedFolder.name);
       await uploadMatrixFile();
-      navigate(`/viewer/${slug || projectId}`);
+      success("Camera file uploaded successfully!");
     } catch (err) {
       error(err.response?.data?.file?.[0] || "Failed to upload camera file");
     } finally {
@@ -382,7 +380,7 @@ export default function PhotoUpload() {
     <>
       <Topbar />
       <div className="min-h-screen bg-white">
-        <div className="px-4 sm:px-6 py-8 max-w-4xl mx-auto space-y-6">
+        <div className="px-4 sm:px-6 py-8 max-w-7xl mx-auto space-y-6">
           {/* Back Button */}
           <Button
             variant="ghost"
@@ -618,7 +616,7 @@ export default function PhotoUpload() {
                     <p className="text-sm font-medium text-black mb-4">
                       {selectedFolder.images.length} image(s)
                     </p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
                       {selectedFolder.images.map((image) => (
                         <div
                           key={image.id}

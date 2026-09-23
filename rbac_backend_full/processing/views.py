@@ -1062,6 +1062,7 @@ class ProgressHistoryView(APIView):
 
     def get(self, request, project_id):
         from .models import ProgressAssessment
+        from .progress import count_completion
         rows = ProgressAssessment.objects.filter(project_id=project_id)
         pair_id = request.query_params.get("pair_id")
         if pair_id:
@@ -1076,7 +1077,7 @@ class ProgressHistoryView(APIView):
             "completed_elements": a.completed_elements,
             "in_progress_elements": a.in_progress_elements,
             "not_started_elements": a.not_started_elements,
-            "overall_completion": a.overall_completion,
+            "overall_completion": count_completion(a.completed_elements, a.total_elements),
         } for a in rows]
         return Response(data)
 
@@ -1093,7 +1094,7 @@ class ProgressPairAssessmentView(APIView):
 
     def get(self, request, pair_id):
         from .models import ProgressAssessment, ProgressElement
-        from .progress import _by_category
+        from .progress import _by_category, count_completion
 
         assessment = (
             ProgressAssessment.objects.filter(alignment_pair_id=pair_id)
@@ -1120,7 +1121,10 @@ class ProgressPairAssessmentView(APIView):
             "completed": assessment.completed_elements,
             "in_progress": assessment.in_progress_elements,
             "not_started": assessment.not_started_elements,
-            "overall_completion": assessment.overall_completion,
+            # Recomputed from counts so assessments saved before completion
+            # became count-based (completed / total) read consistently.
+            "overall_completion": count_completion(
+                assessment.completed_elements, assessment.total_elements),
         }
 
         return Response({
@@ -1283,6 +1287,7 @@ class ProgressTimelineView(APIView):
     def get(self, request, project_id):
         from collections import defaultdict
         from .models import AlignmentPair, ProgressAssessment, ProgressElement
+        from .progress import count_completion, points_coverage
 
         pairs = AlignmentPair.objects.filter(project_id=project_id).select_related(
             "pointcloud"
@@ -1322,17 +1327,15 @@ class ProgressTimelineView(APIView):
 
                 categories = []
                 for name, v in sorted(cats.items()):
-                    pct = (
-                        round(min(100.0, v["overlap_points"] / v["bim_points"] * 100.0), 1)
-                        if v["bim_points"] > 0 else 0.0
-                    )
                     categories.append({
                         "category": name,
                         "count": v["count"],
                         "completed": v["completed"],
                         "in_progress": v["in_progress"],
                         "not_started": v["not_started"],
-                        "completion": pct,
+                        "completion": count_completion(v["completed"], v["count"]),
+                        "points_coverage": points_coverage(
+                            v["overlap_points"], v["bim_points"]),
                     })
 
                 entry.update({
@@ -1343,7 +1346,8 @@ class ProgressTimelineView(APIView):
                         "completed": assessment.completed_elements,
                         "in_progress": assessment.in_progress_elements,
                         "not_started": assessment.not_started_elements,
-                        "overall_completion": assessment.overall_completion,
+                        "overall_completion": count_completion(
+                            assessment.completed_elements, assessment.total_elements),
                     },
                     "categories": categories,
                 })
