@@ -176,10 +176,41 @@ const CHART_METRICS = [
     key: "completion",
     label: "Completion (%)",
     color: "#16a34a",
-    format: (v) => `${Math.round(v * 10) / 10}%`,
+    format: (v) => fmtPct(v),
     isPercentage: true,
   },
 ];
+
+// Attach per-category element status counts (completed / in_progress /
+// not_started) derived from the element list. Elements are grouped by their
+// `category` (e.g. "Beams") — the same key the backend uses for `categories`.
+function withElementCounts(categories, elements) {
+  const counts = {};
+  (elements || []).forEach((e) => {
+    const cat = e.category || e.element_type || "Other";
+    counts[cat] = counts[cat] || { completed: 0, in_progress: 0, not_started: 0 };
+    if (counts[cat][e.status] != null) counts[cat][e.status] += 1;
+  });
+  return (categories || []).map((c) => {
+    const v = counts[c.category] || { completed: 0, in_progress: 0, not_started: 0 };
+    const completed = c.completed ?? v.completed;
+    const in_progress = c.in_progress ?? v.in_progress;
+    const not_started = c.not_started ?? v.not_started;
+    const total = c.count || completed + in_progress + not_started;
+    return { ...c, completed, in_progress, not_started, count: total };
+  });
+}
+
+// "850 / 1,375 completed (61.8%)"
+function completedLabel(completed, total) {
+  const pct = total ? (completed / total) * 100 : 0;
+  return `${(completed || 0).toLocaleString()} / ${(total || 0).toLocaleString()} completed (${pct.toFixed(2)}%)`;
+}
+
+// Percentage with up to 2 decimals: 51.43%, 7.15%, 100%.
+function fmtPct(v) {
+  return `${Math.round((v || 0) * 100) / 100}%`;
+}
 
 // Round a max value up to a "nice" number so axis ticks read cleanly.
 function niceCeil(v) {
@@ -223,6 +254,8 @@ function exportCategoriesToCSV(rows, metricKey) {
   const headers = [
     "Category",
     "Count",
+    "Completed Elements",
+    "Completed Elements (%)",
     "BIM Volume (m3)",
     "Overlap Volume (m3)",
     "BIM Points",
@@ -236,6 +269,8 @@ function exportCategoriesToCSV(rows, metricKey) {
       [
         csvCell(c.category),
         c.count,
+        c.completed || 0,
+        c.count ? (((c.completed || 0) / c.count) * 100).toFixed(1) : 0,
         c.bim_volume,
         c.overlap_volume,
         c.bim_points,
@@ -322,6 +357,15 @@ function exportChartToPNG(data, metric) {
     ctx.font = "bold 10px Segoe UI, Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(metric.format(d.value), cx, y - 6);
+    if (d.raw) {
+      ctx.fillStyle = "#16a34a";
+      ctx.font = "9px Segoe UI, Arial, sans-serif";
+      ctx.fillText(
+        `${(d.raw.completed || 0).toLocaleString()}/${(d.raw.count || 0).toLocaleString()}`,
+        cx,
+        y - 18,
+      );
+    }
 
     ctx.save();
     ctx.fillStyle = "#475569";
@@ -723,6 +767,19 @@ function InteractiveBarChart({
                   }}
                 >
                   {d.category}
+                  {d.raw && (
+                    <div
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: "#16a34a",
+                        fontVariantNumeric: "tabular-nums",
+                        marginTop: 2,
+                      }}
+                    >
+                      {`${(d.raw.completed || 0).toLocaleString()} / ${(d.raw.count || 0).toLocaleString()}`}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -736,9 +793,17 @@ function InteractiveBarChart({
         category={hoveredDatum.category}
         color={metric.color}
         lines={[
-          metric.format(hoveredDatum.value),
+          metric.isPercentage
+            ? `${metric.format(hoveredDatum.value)} completed`
+            : metric.format(hoveredDatum.value),
           ...(!metric.isPercentage && totalForPercent > 0
             ? [`${hoveredShare.toFixed(1)}% of total`]
+            : []),
+          ...(hoveredDatum.raw
+            ? [completedLabel(hoveredDatum.raw.completed, hoveredDatum.raw.count)]
+            : []),
+          ...(metric.isPercentage && hoveredDatum.raw?.points_coverage != null
+            ? [`${fmtPct(hoveredDatum.raw.points_coverage)} points coverage`]
             : []),
         ]}
       />
@@ -966,7 +1031,7 @@ function KPICardsRow({ summary, categories, history }) {
         icon={Percent}
         label="Completion"
         color="#4f46e5"
-        value={`${Math.round(summary.overall_completion)}%`}
+        value={fmtPct(summary.overall_completion)}
         chart={<Sparkline values={completionSeries} color="#4f46e5" />}
         caption={
           delta == null ? (
@@ -1218,7 +1283,7 @@ function CompletionOverview({ summary, history, onExplore }) {
           category: "Complete",
           color: meta.color,
           lines: [
-            `${Math.round(value)}% complete`,
+            `${fmtPct(value)} complete`,
             `${completeCount.toLocaleString()} of ${total.toLocaleString()} elements`,
           ],
         }
@@ -1227,7 +1292,7 @@ function CompletionOverview({ summary, history, onExplore }) {
             category: "Remaining",
             color: "#94a3b8",
             lines: [
-              `${Math.round(100 - value)}% remaining`,
+              `${fmtPct(100 - value)} remaining`,
               `${incompleteTotal.toLocaleString()} of ${total.toLocaleString()} elements`,
             ],
           }
@@ -1332,13 +1397,13 @@ function CompletionOverview({ summary, history, onExplore }) {
         <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: "#16a34a" }}>
-              {Math.round(value)}%
+              {fmtPct(value)}
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8" }}>Complete</div>
           </div>
           <div>
             <div style={{ fontSize: 20, fontWeight: 800, color: "#94a3b8" }}>
-              {Math.round(100 - value)}%
+              {fmtPct(100 - value)}
             </div>
             <div style={{ fontSize: 10, color: "#94a3b8" }}>Remaining</div>
           </div>
@@ -1408,7 +1473,14 @@ function StackedPointsBar({ categories }) {
     const total = c.bim_points || 0;
     const covered = Math.min(c.overlap_points || 0, total);
     const missing = Math.max(0, total - covered);
-    return { category: c.category, covered, missing, total };
+    return {
+      category: c.category,
+      covered,
+      missing,
+      total,
+      completedEls: c.completed || 0,
+      totalEls: c.count || 0,
+    };
   });
   const max = niceCeil(Math.max(0, ...data.map((d) => d.total)));
   const barMinWidth = data.length <= 10 ? 0 : 52;
@@ -1571,6 +1643,16 @@ function StackedPointsBar({ categories }) {
                   }}
                 >
                   {d.category}
+                  <div
+                    style={{
+                      fontSize: 9,
+                      color: "#16a34a",
+                      fontVariantNumeric: "tabular-nums",
+                      marginTop: 2,
+                    }}
+                  >
+                    {`${d.completedEls.toLocaleString()} / ${d.totalEls.toLocaleString()}`}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1585,6 +1667,7 @@ function StackedPointsBar({ categories }) {
           lines={[
             `${hovered.covered.toLocaleString()} of ${hovered.total.toLocaleString()} BIM points covered`,
             `${hovered.total ? ((hovered.covered / hovered.total) * 100).toFixed(1) : 0}% covered · ${hovered.missing.toLocaleString()} missing`,
+            `Elements: ${completedLabel(hovered.completedEls, hovered.totalEls)}`,
           ]}
         />
       )}
@@ -1809,18 +1892,19 @@ function CoverageHeatmap({ categories, elements }) {
     { key: "not_started", label: "Not Started", color: "#dc2626" },
   ];
 
-  const grid = useMemo(() => {
-    const counts = {};
-    elements.forEach((e) => {
-      const cat = e.element_type || "Other";
-      counts[cat] = counts[cat] || { completed: 0, in_progress: 0, not_started: 0 };
-      if (counts[cat][e.status] != null) counts[cat][e.status] += 1;
-    });
-    return categories.map((c) => ({
-      category: c.category,
-      values: counts[c.category] || { completed: 0, in_progress: 0, not_started: 0 },
-    }));
-  }, [categories, elements]);
+  const grid = useMemo(
+    () =>
+      withElementCounts(categories, elements).map((c) => ({
+        category: c.category,
+        total: c.count,
+        values: {
+          completed: c.completed,
+          in_progress: c.in_progress,
+          not_started: c.not_started,
+        },
+      })),
+    [categories, elements],
+  );
 
   const maxCount = Math.max(1, ...grid.flatMap((r) => cols.map((c) => r.values[c.key])));
 
@@ -1832,7 +1916,9 @@ function CoverageHeatmap({ categories, elements }) {
     if (!hoverKey) return null;
     const [cat, colKey] = hoverKey.split("__");
     const row = grid.find((r) => r.category === cat);
-    return row ? { category: cat, colKey, value: row.values[colKey] } : null;
+    return row
+      ? { category: cat, colKey, value: row.values[colKey], total: row.total }
+      : null;
   }, [hoverKey, grid]);
   const hoveredCol = hoveredCell && cols.find((c) => c.key === hoveredCell.colKey);
 
@@ -1859,6 +1945,18 @@ function CoverageHeatmap({ categories, elements }) {
                   {c.label}
                 </th>
               ))}
+              <th
+                style={{
+                  fontSize: 10,
+                  color: "#94a3b8",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.03em",
+                  textAlign: "left",
+                }}
+              >
+                Completed / Total
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1919,6 +2017,18 @@ function CoverageHeatmap({ categories, elements }) {
                     </td>
                   );
                 })}
+                <td
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#334155",
+                    whiteSpace: "nowrap",
+                    paddingLeft: 6,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {completedLabel(row.values.completed, row.total)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1930,7 +2040,7 @@ function CoverageHeatmap({ categories, elements }) {
           category={hoveredCell.category}
           color={hoveredCol.color}
           lines={[
-            `${hoveredCell.value} ${hoveredCol.label.toLowerCase()} element${hoveredCell.value === 1 ? "" : "s"}`,
+            `${hoveredCell.value.toLocaleString()} / ${hoveredCell.total.toLocaleString()} ${hoveredCol.label.toLowerCase()} (${hoveredCell.total ? ((hoveredCell.value / hoveredCell.total) * 100).toFixed(1) : 0}%)`,
           ]}
         />
       )}
@@ -2047,7 +2157,7 @@ function TrendLineChart({ history }) {
           anchorRect={anchorRect}
           category={fmtDate(hovered.h.pointcloud_date)}
           color="#4f46e5"
-          lines={[`${Math.round(hovered.h.overall_completion)}% overall completion`]}
+          lines={[`${fmtPct(hovered.h.overall_completion)} overall completion`]}
         />
       )}
     </div>
@@ -2469,6 +2579,22 @@ function CategoryChartsPanel({ categories, elements, summary, history, panelRef,
                 </span>
               </div>
             ))}
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span
+                style={{
+                  fontSize: 9,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  color: "#94a3b8",
+                  fontWeight: 700,
+                }}
+              >
+                Completed Elements
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#16a34a" }}>
+                {completedLabel(focusedCategoryData.completed, focusedCategoryData.count)}
+              </span>
+            </div>
           </div>
         )}
         </ChartBlock>
@@ -2870,6 +2996,10 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
   }, [filteredPairs, pairPage]);
 
   const summary = result?.summary;
+  const categoriesWithCounts = useMemo(
+    () => withElementCounts(result?.categories, result?.elements),
+    [result],
+  );
   const elementTypes = useMemo(() => {
     if (!result?.elements) return [];
     return Array.from(
@@ -3406,6 +3536,7 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                           {[
                             "Category",
                             "Count",
+                            "Completed Elements",
                             "BIM Volume (m³)",
                             "Overlap Volume (m³)",
                             "BIM Points",
@@ -3419,10 +3550,13 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                         </tr>
                       </thead>
                       <tbody>
-                        {result.categories.map((c) => (
+                        {categoriesWithCounts.map((c) => (
                           <tr key={c.category}>
                             <td style={tdStyle}>{c.category}</td>
-                            <td style={tdStyle}>{c.count}</td>
+                            <td style={tdStyle}>{c.count.toLocaleString()}</td>
+                            <td style={tdStyle}>
+                              {completedLabel(c.completed, c.count)}
+                            </td>
                             <td style={tdStyle}>{c.bim_volume}</td>
                             <td style={tdStyle}>{c.overlap_volume}</td>
                             <td style={tdStyle}>{c.bim_points.toLocaleString()}</td>
@@ -3453,7 +3587,7 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                 {/* Category analytics dashboard (interactive, ICED-style) */}
                 {result.categories?.length > 0 && (
                   <CategoryChartsPanel
-                    categories={result.categories}
+                    categories={categoriesWithCounts}
                     elements={result.elements || []}
                     summary={summary}
                     history={history}

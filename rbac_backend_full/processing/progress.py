@@ -767,48 +767,65 @@ def _empty_summary():
     }
 
 
+def count_completion(completed, total):
+    """Completion % = completed elements / total elements × 100 (e.g. 18 of
+    35 doors → 51.43%). Used for every category and overall completion
+    figure; per-element `completion` stays the element's points coverage."""
+    return round(completed / total * 100.0, 2) if total else 0.0
+
+
+def points_coverage(overlap_points, bim_points):
+    """Share of expected BIM points actually matched in the scan."""
+    return round(min(100.0, overlap_points / bim_points * 100.0), 1) if bim_points > 0 else 0.0
+
+
 def _summarize(results):
     total = len(results)
     completed = sum(1 for r in results if r["status"] == "completed")
     in_progress = sum(1 for r in results if r["status"] == "in_progress")
     not_started = total - completed - in_progress
-    # Points-weighted overall completion (falls back to simple mean if no
-    # element has a computable max-points figure).
-    points_max_total = sum(r["bim_points"] for r in results)
-    overlap_total = sum(r["overlap_points"] for r in results)
-    if points_max_total > 0:
-        overall = min(100.0, overlap_total / points_max_total * 100.0)
-    else:
-        overall = (sum(r["completion"] for r in results) / total) if total else 0.0
     return {
         "total": total,
         "completed": completed,
         "in_progress": in_progress,
         "not_started": not_started,
-        "overall_completion": round(overall, 1),
+        "overall_completion": count_completion(completed, total),
+        "points_coverage": points_coverage(
+            sum(r["overlap_points"] for r in results),
+            sum(r["bim_points"] for r in results),
+        ),
     }
 
 
 def _by_category(results):
     from collections import defaultdict
-    g = defaultdict(lambda: {"count": 0, "bim_volume": 0.0, "bim_points": 0, "overlap_points": 0})
+    g = defaultdict(lambda: {
+        "count": 0, "completed": 0, "in_progress": 0, "not_started": 0,
+        "bim_volume": 0.0, "bim_points": 0, "overlap_points": 0,
+    })
     for r in results:
         c = g[r["category"]]
         c["count"] += 1
+        if r["status"] in ("completed", "in_progress", "not_started"):
+            c[r["status"]] += 1
         c["bim_volume"] += r["bim_volume"]
         c["bim_points"] += r["bim_points"]
         c["overlap_points"] += r["overlap_points"]
     out = []
     for cat, v in sorted(g.items()):
-        pct = round(min(100.0, (v["overlap_points"] / v["bim_points"] * 100.0)), 1) if v["bim_points"] > 0 else 0.0
+        coverage = points_coverage(v["overlap_points"], v["bim_points"])
         out.append({
             "category": cat,
             "count": v["count"],
+            "completed": v["completed"],
+            "in_progress": v["in_progress"],
+            "not_started": v["not_started"],
             "bim_volume": round(v["bim_volume"], 3),
-            "overlap_volume": round(v["bim_volume"] * pct / 100.0, 3),
+            "overlap_volume": round(v["bim_volume"] * coverage / 100.0, 3),
             "bim_points": v["bim_points"],
             "overlap_points": v["overlap_points"],
-            "completion": pct,
+            "completion": count_completion(v["completed"], v["count"]),
+            "points_coverage": coverage,
         })
     return out
 
