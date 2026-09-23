@@ -14,9 +14,12 @@ from .views import (
     ProgressSaveView,
     ProgressHistoryView,
     ProgressPairAssessmentView,
+    ProgressTimelineView,
     AlignmentPairView,
     AlignmentPairListView,
     OverlapSnapshotSaveView,
+    GaussianSplatTrainingView,
+
 )
 
 urlpatterns = [
@@ -58,6 +61,8 @@ urlpatterns = [
          name='progress-history'),
     path('progress/pair/<int:pair_id>/latest/', ProgressPairAssessmentView.as_view(),
          name='progress-pair-latest'),
+    path('progress/timeline/<int:project_id>/', ProgressTimelineView.as_view(),
+         name='progress-timeline'),
 
     # BIM <-> Point Cloud alignment pairs
     path('alignment/pair/', AlignmentPairView.as_view(), name='alignment-pair'),
@@ -67,4 +72,5 @@ urlpatterns = [
     # Viewer's live voxel-hash overlap snapshot, for Progress Assessment
     path('progress/overlap-snapshot/', OverlapSnapshotSaveView.as_view(),
          name='progress-overlap-snapshot'),
+         path('gaussian/train/', GaussianSplatTrainingView.as_view(), name='processing-gaussian-train'),
 ]

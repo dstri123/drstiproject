@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { getProjectIdFromSlug } from "@/lib/utils";
 import {
+  Eye,
   Upload,
   Layers,
   Crosshair,
@@ -45,6 +46,7 @@ export default function IconToolbar({
   const isViewer = role === "viewer";
   const isAnalytics = location.pathname.startsWith("/analytics");
   const isProgress = location.pathname.startsWith("/progress");
+  const isViewerPage = location.pathname.startsWith("/viewer");
   const items = TOOLS.filter((t) => !t.adminOnly || !isViewer);
 
   const NAV_ITEMS = [
@@ -67,6 +69,17 @@ export default function IconToolbar({
       }
     } else {
       navigate(item.path);
+    }
+  };
+
+// Eye button: opens this project's viewer page (/viewer/<projectSlug>).
+  // Clicking again while already on the viewer page closes it — i.e. goes
+  // back to whatever page was open before the viewer.
+  const handleViewerClick = () => {
+    if (isViewerPage) {
+      navigate(-1);
+    } else {
+      navigate(projectSlug ? `/viewer/${projectSlug}` : -1);
     }
   };
 
@@ -183,6 +196,60 @@ export default function IconToolbar({
         gap: 1,
       }}
     >
+      {/* Eye button — opens/closes the viewer page for the current project,
+          rendered as a plain click button (no toggle icon-swap), same style
+          as every other icon below it. */}
+      <div
+        style={{ position: "relative", width: "100%" }}
+        onMouseEnter={() => setHovered("viewer")}
+        onMouseLeave={() => setHovered(null)}
+      >
+        <button
+          onClick={handleViewerClick}
+          title="Viewer"
+          style={{
+            width: "100%",
+            height: 40,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background:
+              hovered === "viewer" ? "rgba(0,0,0,0.03)" : "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: hovered === "viewer" ? "#4B5563" : "#C4CAD4",
+            transition: "color 0.12s ease, background 0.12s ease",
+            padding: 0,
+            borderRadius: 0,
+          }}
+        >
+          <Eye size={16} strokeWidth={1.8} />
+        </button>
+
+        {hovered === "viewer" && (
+          <div
+            style={{
+              position: "absolute",
+              left: 50,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "#1F2937",
+              color: "#F9FAFB",
+              padding: "4px 10px",
+              borderRadius: 5,
+              fontSize: 11,
+              fontWeight: 500,
+              whiteSpace: "nowrap",
+              zIndex: 200,
+              boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+              pointerEvents: "none",
+              letterSpacing: "0.01em",
+            }}
+          >
+            {isViewerPage ? "Close Viewer" : "Open Viewer"}
+          </div>
+        )}
+      </div>
       {items.map((item) => renderButton({ ...item, isNav: false }))}
       {NAV_ITEMS.map((item) =>
         renderButton({ ...item, isNav: true, navItem: item }),

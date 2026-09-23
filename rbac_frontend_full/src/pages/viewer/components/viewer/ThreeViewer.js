@@ -138,6 +138,9 @@ function ThreeViewer({
   const [activePanel, setActivePanel] = useState(null); // 'rotate' | 'sectionBox' | 'cameraTable' | 'geoMap' | 'gaussian' | null
   const [gaussianPointFile, setGaussianPointFile] = useState(null);
   const [gaussianCamerasFile, setGaussianCamerasFile] = useState(null);
+  // An already-trained Gaussian .ply the user supplies directly — skips the
+  // COLMAP-files-in/train-on-the-server flow entirely.
+  const [gaussianPlyFile, setGaussianPlyFile] = useState(null);
   const geoMapOpen = activePanel === "geoMap";
   const [geoLocation, setGeoLocation] = useState({
     latitude: "12.9716",
@@ -1093,6 +1096,7 @@ function ThreeViewer({
     ...props,
     gaussianPointFile,
     gaussianCamerasFile,
+    gaussianPlyFile,
   });
 
   const {
@@ -1544,7 +1548,7 @@ function ThreeViewer({
             background: "rgba(255,255,255,0.98)",
             border: "1px solid rgba(148,163,184,0.4)",
             boxShadow: "0 16px 36px rgba(15,23,42,0.16)",
-            color: "#0f172a",
+            color: "#0F172A",
           }}
         >
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>
@@ -1553,13 +1557,50 @@ function ThreeViewer({
           <div
             style={{
               fontSize: 11,
-              color: "#64748b",
+              color: "#64748B",
               lineHeight: 1.45,
               marginBottom: 12,
             }}
           >
-            Uploaded project photos are sampled into image-derived Gaussian
-            splats. Add point3d.txt for an additional point-cloud layer.
+            Already have a trained Gaussian model? Upload its .ply below and
+            click Show. Otherwise, train one from COLMAP files further down —
+            that runs on the Django server.
+          </div>
+          <label
+            style={{
+              display: "block",
+              fontSize: 11,
+              color: "#475569",
+              marginBottom: 12,
+            }}
+          >
+            Trained Gaussian model (.ply)
+            <input
+              type="file"
+              accept=".ply"
+              onChange={(event) =>
+                setGaussianPlyFile(event.target.files?.[0] || null)
+              }
+              style={{
+                display: "block",
+                width: "100%",
+                marginTop: 5,
+                fontSize: 11,
+              }}
+            />
+          </label>
+
+          <ToolbarDivider />
+
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "#475569",
+              margin: "10px 0 8px",
+            }}
+          >
+            Or train from COLMAP files
           </div>
           <label
             style={{
@@ -1569,7 +1610,7 @@ function ThreeViewer({
               marginBottom: 9,
             }}
           >
-            point3d.txt (optional)
+            points3d.txt
             <input
               type="file"
               accept=".txt"
@@ -1592,7 +1633,7 @@ function ThreeViewer({
               marginBottom: 12,
             }}
           >
-            cameras.txt (optional metadata)
+            cameras.txt
             <input
               type="file"
               accept=".txt"
@@ -1607,48 +1648,51 @@ function ThreeViewer({
               }}
             />
           </label>
-          <button
-            type="button"
-            onClick={() => gaussianData.toggleGaussianSplatting()}
-            disabled={
-              gaussianData.isGaussianLoading ||
-              (!gaussianPointFile && !props.cameraImages?.length)
-            }
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              borderRadius: 7,
-              border: "1px solid #c4b5fd",
-              background: gaussianData.isGaussianVisible
-                ? "#ede9fe"
-                : "#f8fafc",
-              color: "#5b21b6",
-              cursor:
-                gaussianData.isGaussianLoading ||
-                (!gaussianPointFile && !props.cameraImages?.length)
-                  ? "not-allowed"
-                  : "pointer",
-              opacity:
-                gaussianData.isGaussianLoading ||
-                (!gaussianPointFile && !props.cameraImages?.length)
-                  ? 0.55
-                  : 1,
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            {gaussianData.isGaussianLoading
-              ? "Building splats..."
-              : gaussianData.isGaussianVisible
-                ? `Hide splats (${gaussianData.gaussianPointCount.toLocaleString()})`
-                : "Show Gaussian splats"}
-          </button>
+          {(() => {
+            const canShowUploaded = Boolean(gaussianPlyFile);
+            const canTrain =
+              Boolean(gaussianPointFile) &&
+              Boolean(gaussianCamerasFile) &&
+              Boolean(props.cameraImages?.length) &&
+              Boolean(props.cameraPositionsFile);
+            const disabled =
+              gaussianData.isGaussianLoading || (!canShowUploaded && !canTrain);
+            return (
+              <button
+                type="button"
+                onClick={() => gaussianData.toggleGaussianSplatting()}
+                disabled={disabled}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: 7,
+                  border: "1px solid #C4B5FD",
+                  background: gaussianData.isGaussianVisible
+                    ? "#EDE9FE"
+                    : "#F8FAFC",
+                  color: "#5B21B6",
+                  cursor: disabled ? "not-allowed" : "pointer",
+                  opacity: disabled ? 0.55 : 1,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {gaussianData.isGaussianLoading
+                  ? canShowUploaded
+                    ? "Loading Gaussian model..."
+                    : "Training Gaussian model..."
+                  : gaussianData.isGaussianVisible
+                    ? `Hide splats (${gaussianData.gaussianPointCount.toLocaleString()})`
+                    : "Show Gaussian splats"}
+              </button>
+            );
+          })()}
           {gaussianData.gaussianError && (
             <div
               style={{
                 marginTop: 8,
                 fontSize: 11,
-                color: "#b91c1c",
+                color: "#B91C1C",
                 lineHeight: 1.35,
               }}
             >

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
 import IconToolbar from "../viewer/layout/IconToolbar";
@@ -40,6 +40,7 @@ import {
   AlertCircle,
   Eye,
   RefreshCw,
+  CalendarRange,
 } from "lucide-react";
 
 // ─── Status helpers ─────────────────────────────────────────────────────────
@@ -2522,6 +2523,7 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
   // "latest" upload never shows up here without a full page reload.
   const location = useLocation();
   const isActiveTab = /^\/progress\//.test(location.pathname);
+  const navigate = useNavigate();
   const toast = useToast();
   const role = localStorage.getItem("role") || "viewer";
 
@@ -3023,6 +3025,16 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                 <button onClick={scrollToCharts} style={chartsBtn}>
                   <BarChart3 size={14} />
                   Charts
+                </button>
+              )}
+              {pairs.length > 0 && (
+                <button
+                  onClick={() => navigate(`/progress-timeline/${routeParam}`)}
+                  title="See Completed/In Progress/Not Started and category completion across each Point Cloud scan date"
+                  style={{ ...chartsBtn, background: "#0891b2" }}
+                >
+                  <CalendarRange size={14} />
+                  Timeline
                 </button>
               )}
               <span

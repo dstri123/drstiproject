@@ -9,4 +9,5 @@ drf-spectacular>=0.27.0
 trimesh>=3.20.0
 numpy>=1.24
 scipy>=1.10
+torch>=2.2
 laspy[lazrs]>=2.0

@@ -13,8 +13,10 @@ Each view is inspired by an IFCtoFDS concept mapped to the backend:
 import os
 import tempfile
 import shutil
+import uuid
 from datetime import datetime
 from threading import Thread
+from django.conf import settings
 
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -36,6 +38,7 @@ from .serializers import (
 from .validators import validate_bim_upload, validate_pointcloud_upload
 from .diagnostics import run_bim_checks, run_pointcloud_checks, run_project_checks
 from .ifc_parser import parse_ifc_metadata
+from .gaussian_splatting import train_colmap_gaussians
 
 
 def _get_client_ip(request):
@@ -44,6 +47,48 @@ def _get_client_ip(request):
         return x_forwarded.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR')
 
+class GaussianSplatTrainingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        cameras = request.FILES.get("cameras")
+        images_txt = request.FILES.get("images_txt")
+        points = request.FILES.get("points")
+        image_zip = request.FILES.get("images")
+        if not all((cameras, images_txt, points, image_zip)):
+            return Response({"error": "cameras, images_txt, points, and images are required"}, status=400)
+        output_dir = os.path.join(settings.MEDIA_ROOT, "gaussian_models")
+        os.makedirs(output_dir, exist_ok=True)
+        output_name = f"{uuid.uuid4().hex}.ply"
+        output_path = os.path.join(output_dir, output_name)
+        try:
+            result = train_colmap_gaussians(
+                cameras.read().decode("utf-8", errors="replace"),
+                images_txt.read().decode("utf-8", errors="replace"),
+                points.read().decode("utf-8", errors="replace"),
+                image_zip, output_path, request.data.get("iterations", 120),
+            )
+        except Exception as error:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            import traceback
+            traceback.print_exc()
+            error_text = str(error)
+            if "WinError 4551" in error_text or "c10.dll" in error_text:
+                return Response(
+                    {
+                        "error": (
+                            "Gaussian training is unavailable because Windows Application Control "
+                            "blocked PyTorch (c10.dll). Ask your administrator to approve the "
+                            "project Python environment or run training on an approved machine."
+                        ),
+                        "code": "TORCH_RUNTIME_BLOCKED",
+                    },
+                    status=503,
+                )
+            return Response({"error": error_text}, status=422)
+        url = request.build_absolute_uri(f"{settings.MEDIA_URL}gaussian_models/{output_name}")
+        return Response({"url": url, **result})
 
 def _audit(request, action, description, bim_data=None, point_data=None, metadata=None):
     AuditLog.objects.create(
@@ -1222,3 +1267,88 @@ class AlignmentPairListView(APIView):
                 "overlap_snapshot_at": p.overlap_snapshot_at,
             })
         return Response(data)
+
+
+class ProgressTimelineView(APIView):
+    """
+    GET /api/v1/processing/progress/timeline/<project_id>/
+    Date-wise progress across every registered alignment pair for a project,
+    one entry per Point Cloud scan date — the BIM model is the same across
+    all pairs for a project, so only `pointcloud_date` is used as the axis.
+    Powers the standalone Progress Timeline page (Completed/In Progress/Not
+    Started counts per date, and a per-category completion trend).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, project_id):
+        from collections import defaultdict
+        from .models import AlignmentPair, ProgressAssessment, ProgressElement
+
+        pairs = AlignmentPair.objects.filter(project_id=project_id).select_related(
+            "pointcloud"
+        )
+
+        entries = []
+        for pair in pairs:
+            entry = {
+                "pair_id": pair.id,
+                "pointcloud_date": pair.pointcloud_date
+                or (pair.pointcloud.date if pair.pointcloud else None),
+                "pointcloud_description": pair.pointcloud.description
+                if pair.pointcloud else "",
+                "assessment_id": None,
+                "saved_at": None,
+                "summary": None,
+                "categories": [],
+            }
+
+            assessment = (
+                ProgressAssessment.objects.filter(alignment_pair=pair)
+                .order_by("-created_at")
+                .first()
+            )
+            if assessment:
+                cats = defaultdict(lambda: {
+                    "count": 0, "completed": 0, "in_progress": 0,
+                    "not_started": 0, "bim_points": 0, "overlap_points": 0,
+                })
+                for e in ProgressElement.objects.filter(assessment=assessment):
+                    c = cats[e.category or "Uncategorized"]
+                    c["count"] += 1
+                    c[e.status] += 1
+                    c["bim_points"] += e.bim_points
+                    c["overlap_points"] += min(e.overlap_points, e.bim_points) \
+                        if e.bim_points else e.overlap_points
+
+                categories = []
+                for name, v in sorted(cats.items()):
+                    pct = (
+                        round(min(100.0, v["overlap_points"] / v["bim_points"] * 100.0), 1)
+                        if v["bim_points"] > 0 else 0.0
+                    )
+                    categories.append({
+                        "category": name,
+                        "count": v["count"],
+                        "completed": v["completed"],
+                        "in_progress": v["in_progress"],
+                        "not_started": v["not_started"],
+                        "completion": pct,
+                    })
+
+                entry.update({
+                    "assessment_id": assessment.id,
+                    "saved_at": assessment.created_at,
+                    "summary": {
+                        "total": assessment.total_elements,
+                        "completed": assessment.completed_elements,
+                        "in_progress": assessment.in_progress_elements,
+                        "not_started": assessment.not_started_elements,
+                        "overall_completion": assessment.overall_completion,
+                    },
+                    "categories": categories,
+                })
+
+            entries.append(entry)
+
+        entries.sort(key=lambda d: (d["pointcloud_date"] is None, d["pointcloud_date"]))
+        return Response({"dates": entries})
