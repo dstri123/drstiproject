@@ -51,6 +51,7 @@ import PhotoUpload from "./pages/photos/PhotoUpload";
 // ViewerPage / AnalyticsPage / ProgressAssessmentPage are no longer routed
 // directly — PersistentWorkspace renders them as permanent, always-mounted
 // siblings of <Routes> so they survive navigation between each other.
+import ProgressTimelinePage from "./pages/analytics/ProgressTimelinePage";
 
 export default function App() {
   return (
@@ -120,6 +121,13 @@ export default function App() {
               not routed here — so they stay mounted across navigation
               between each other instead of reloading from scratch. */}
         </Route>
+
+        {/* Progress Timeline — a standalone, stateless charts page (unlike
+            Viewer/Analytics/Progress it doesn't need to stay mounted across
+            navigation), so it's a normal route with its own full-screen
+            Header/IconToolbar chrome instead of going through
+            PersistentWorkspace or DashboardLayout. */}
+        <Route path="/progress-timeline/:slug" element={<ProgressTimelinePage />} />
       </Routes>
       <PersistentWorkspace />
     </BrowserRouter>
