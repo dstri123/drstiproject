@@ -28,7 +28,6 @@ import CameraPreviewPanel from "./CameraPreviewPanel";
 import useTransformControls from "./useTransformControls";
 import useObjectSelection from "./useObjectSelection";
 import BlenderViewportGizmo from "../gizmo/BlenderViewportGizmo";
-import CompassRing from "../gizmo/CompassRing";
 import SectionBoxManager from "./sectionbox/SectionBoxManager";
 import ClipBar from "./ClipBar";
 import LeafletMap from "./LeafletMap";
@@ -1431,8 +1430,6 @@ function ThreeViewer({
             }}
           />
 
-          <ToolbarDivider />
-
           {/* Group: camera navigation */}
           <FlatToolbarButton
             icon={<ZoomIn size={16} strokeWidth={1.8} />}
@@ -1501,8 +1498,6 @@ function ThreeViewer({
               togglePanel("cameraTable");
             }}
           />
-
-          <ToolbarDivider />
 
           {/* Group: place on map + save */}
           <FlatToolbarButton
@@ -2580,7 +2575,6 @@ function ThreeViewer({
         cameraRef={sceneData.cameraRef}
         controlsRef={sceneData.controlsRef}
       />
-      <CompassRing cameraRef={sceneData.cameraRef} />
     </div>
   );
 }
