@@ -256,6 +256,14 @@ function ThreeViewer({
   // a single unit), and can be reset to 1×.
   const scaleBaseRef = useRef(new Map());
   const scalePivotRef = useRef(null);
+  // Guards the Scale/Altitude re-seat effect below: it must never move the
+  // models (or cameras) just because the Map Location panel was opened —
+  // only once the user has explicitly clicked "Place Models" should altitude/
+  // scale edits start affecting the scene. Without this, opening the panel
+  // with its default altitude "0" would immediately snap an already-aligned
+  // model (whose base may not sit exactly at y=0) to the ground, undoing
+  // whatever alignment/picking work the user had already done.
+  const hasPlacedRef = useRef(false);
   const sectionManagerRef = useRef(null);
   const [clipState, setClipState] = useState(null);
   // Set once BIM + point cloud are aligned to each other: the shared "common
@@ -596,7 +604,17 @@ function ThreeViewer({
       );
       if (bimModel) bimModel.applyMatrix4(moveMatrix);
       if (pcModel) pcModel.applyMatrix4(moveMatrix);
-      cameraData.allCameras?.forEach((cam) => cam.applyMatrix4(moveMatrix));
+      // Move the camera markers (visible cones/bubbles) + helpers together with
+      // the models, not just the invisible preview cameras — otherwise the
+      // markers stay behind at their old position while the building moves to
+      // the map pin, visually detaching them and dropping them near the old
+      // ground/origin instead of staying put above the building.
+      cameraData.applyGeoTransform?.(moveMatrix);
+
+      // From here on, this placement's position is the reference the
+      // Scale/Altitude sliders adjust relative to — not whatever the model's
+      // pose was before the user ever opened the Map Location panel.
+      hasPlacedRef.current = true;
 
       // Footprint area = combined X–Z extent in m² (geometry assumed in metres).
       // Only auto-fill if the user hasn't typed their own value.
@@ -660,6 +678,8 @@ function ThreeViewer({
       }
     }
     scalePivotRef.current = null;
+    scaleBaseRef.current = new Map();
+    hasPlacedRef.current = false;
     footprintEditedRef.current = false;
     setFootprintArea(null);
     // Reset the editable fields back to the project's seeded values (or
@@ -879,7 +899,11 @@ function ThreeViewer({
   // combined centre at base scale) so their relative alignment is preserved —
   // they never drift apart.
   useEffect(() => {
-    if (!geoMapOpen) return;
+    // Do nothing until the user has explicitly clicked "Place Models" —
+    // otherwise merely opening the panel (with its default altitude "0")
+    // would silently re-seat an already-aligned model, changing a position/
+    // alignment the user never asked to touch.
+    if (!geoMapOpen || !hasPlacedRef.current) return;
     const s = parseFloat(geoLocation.scale);
     if (!Number.isFinite(s) || s <= 0) return;
     const models = [modelData?.bimModel, modelData?.pcModel].filter(Boolean);
@@ -929,7 +953,15 @@ function ThreeViewer({
         m.position.y += dy;
         m.updateMatrixWorld(true);
       }
+      // Keep the camera markers seated with the models' vertical correction
+      // too, otherwise they'd stay behind at the old height.
+      cameraData.applyGeoTransform?.(
+        new THREE.Matrix4().makeTranslation(0, dy, 0),
+      );
     }
+    // cameraData.applyGeoTransform is a stable ref-backed callback (see
+    // useCameraSystem), so it doesn't need to be in the dependency list.
+    // eslint-disable-next-line
   }, [geoLocation.scale, geoLocation.altitude, geoMapOpen, modelData]);
 
   // ── Per-model rotation ─────────────────────────────────────────────────────

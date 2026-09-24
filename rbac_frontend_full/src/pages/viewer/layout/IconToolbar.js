@@ -9,7 +9,6 @@ import {
   AlignCenter,
   Camera,
   Table2,
-  Download,
   Settings,
   BarChart2,
   Boxes,
@@ -22,7 +21,6 @@ const TOOLS = [
   { id: "alignment", icon: AlignCenter, label: "Alignment", adminOnly: true },
   { id: "cameras", icon: Camera, label: "Cameras" },
   { id: "matrix", icon: Table2, label: "Camera Matrix" },
-  { id: "export", icon: Download, label: "Export" },
   { id: "settings", icon: Settings, label: "Settings" },
 ];
 
