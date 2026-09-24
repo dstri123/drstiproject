@@ -404,6 +404,38 @@ export default function useCameraSystem(sceneData, modelData, props) {
     sceneRef.current.add(dotGroup);
     pathDotsRef.current = dotGroup;
   }, [sceneRef]);
+
+  // ── GEO TRANSFORM (place-on-map / scale-about-pivot) ──────────────────────
+  // Applies the same world-space matrix used to move the BIM/point-cloud
+  // models (e.g. when "Place Models" re-seats them at the map pin, or the
+  // geo-panel's scale slider rescales them about a pivot) to every camera —
+  // both the invisible THREE.PerspectiveCamera used for the live preview AND
+  // the visible marker/helper meshes. Without this, only the invisible camera
+  // moved with the model while the visible cone/bubble markers stayed behind,
+  // so they visibly detached from the building and dropped toward the old
+  // origin/ground plane once the model was relocated.
+  const applyGeoTransform = useCallback((matrix) => {
+    if (!matrix) return;
+    camerasRef.current.forEach((cam, idx) => {
+      cam.applyMatrix4(matrix);
+      cam.updateMatrixWorld(true);
+
+      const marker = cameraMarkersRef.current[idx];
+      if (marker) {
+        marker.applyMatrix4(matrix);
+        marker.updateMatrixWorld(true);
+      }
+
+      const helper = cameraHelpersRef.current[idx];
+      if (helper) helper.update();
+    });
+
+    if (pathDotsRef.current) {
+      pathDotsRef.current.applyMatrix4(matrix);
+      pathDotsRef.current.updateMatrixWorld(true);
+    }
+  }, []);
+
   // ── BUILD cameras ─────────────────────────────────────────────────────────
   const buildCameras = useCallback(
     (positions) => {
@@ -990,6 +1022,70 @@ export default function useCameraSystem(sceneData, modelData, props) {
     updateCameraPath();
   }, [showCameras, setActiveCamera, sceneRef, cameraRef, updateCameraPath]);
 
+  // ── ADD BUBBLE CAMERA MANUALLY ────────────────────────────────────────────
+  // Same idea as addCameraManually, but marked isBubble so it renders as a
+  // round "bubble" marker in the scene and, once clicked, prompts for a
+  // 360° equirectangular image instead of a regular photo.
+  const addBubbleCameraManually = useCallback(() => {
+    if (!sceneRef.current || !cameraRef.current) return;
+    manualCameraCounter += 1;
+    const label = `Bubble Camera ${manualCameraCounter}`;
+    const mainCam = cameraRef.current;
+    const dir = new THREE.Vector3();
+    mainCam.getWorldDirection(dir);
+    const spawnPos = mainCam.position.clone().add(dir.multiplyScalar(5));
+
+    const cam = new THREE.PerspectiveCamera(60, 4 / 3, 0.01, 10000);
+    cam.position.copy(spawnPos);
+    cam.quaternion.copy(mainCam.quaternion);
+    cam.updateMatrixWorld(true);
+
+    const idx = camerasRef.current.length;
+    cam.userData = {
+      imageName: label,
+      image: null,
+      hasImage: false,
+      index: idx,
+      isManual: true,
+      isBubble: true,
+    };
+    sceneRef.current.add(cam);
+    camerasRef.current.push(cam);
+
+    // Bubble-shaped marker (sphere) instead of the cone used for regular
+    // manual cameras, so it's visually distinct in the viewport.
+    const geo = new THREE.SphereGeometry(1, 20, 20);
+    const marker = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: 0x000000,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.85,
+      }),
+    );
+    marker.position.copy(cam.position);
+    marker.setRotationFromQuaternion(cam.quaternion);
+    marker.userData.cameraIndex = idx;
+    marker.userData.baseColor = 0xec4899;
+    marker.visible = showCameras !== false;
+    sceneRef.current.add(marker);
+    cameraMarkersRef.current.push(marker);
+
+    const helper = new THREE.CameraHelper(cam);
+    helper.visible = false;
+    sceneRef.current.add(helper);
+    cameraHelpersRef.current.push(helper);
+
+    setActiveCamera(cam);
+
+    setManualCameras((prev) => [
+      ...prev,
+      { name: label, visible: true, hasImage: false, isBubble: true },
+    ]);
+    updateCameraPath();
+  }, [showCameras, setActiveCamera, sceneRef, cameraRef, updateCameraPath]);
+
   // ── DELETE CAMERA ─────────────────────────────────────────────────────────
   const deleteCamera = useCallback(
     (name) => {
@@ -1217,6 +1313,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
         image: imageUrl || null,
         camObj: cam,
         isManual: cam.userData.isManual,
+        isBubble: !!cam.userData.isBubble,
         awaitingImage: cam.userData.isManual && !imageUrl,
       });
     };
@@ -1269,12 +1366,14 @@ export default function useCameraSystem(sceneData, modelData, props) {
     window.handleCameraMatrixUpload = handleCameraMatrixUpload;
     window.applyCameraMatrix = applyCameraMatrix;
     window.addCameraManually = addCameraManually;
+    window.addBubbleCameraManually = addBubbleCameraManually;
     window.toggleCameraPath = toggleCameraPath;
   }, [
     handleCameraFolderUpload,
     handleCameraMatrixUpload,
     applyCameraMatrix,
     addCameraManually,
+    addBubbleCameraManually,
     toggleCameraPath,
   ]);
 
@@ -1286,6 +1385,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     handleCameraMatrixUpload,
     applyCameraMatrix,
     addCameraManually,
+    addBubbleCameraManually,
     deleteCamera,
     toggleCameraVisibility,
     colorCamerasByColumn,
@@ -1293,6 +1393,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     handleManualCameraImageUpload,
     manualCameras,
     allCameras: camerasRef.current, // ← NEW: real posed cameras (DJI batch + manual), THREE.PerspectiveCamera objects with world transforms already applied
+    applyGeoTransform,
     transformRef,
     setActiveCamera,
     clearActiveCamera,
