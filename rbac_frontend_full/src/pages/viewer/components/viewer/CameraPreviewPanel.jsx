@@ -1,6 +1,7 @@
 CameraPreviewPanel.js;
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import * as THREE from "three";
 import {
   useConstructionSegmentation,
   CONSTRUCTION_CLASSES,
@@ -25,6 +26,105 @@ const Spinner = ({ size = 14, color = "#f97316" }) => (
     <circle cx="12" cy="12" r="9" strokeDasharray="40" strokeDashoffset="14" />
   </svg>
 );
+
+// ── 360° panorama viewer ───────────────────────────────────────────────────
+// Projects the uploaded equirectangular image onto the inside of a sphere and
+// lets the viewer drag to look around in every direction, instead of showing
+// it as a flat rectangle.
+function Bubble360View({ imageUrl, width, height }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !imageUrl) return;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height, false);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, width / height, 1, 1100);
+
+    // Sphere with inward-facing normals so the texture wraps around the
+    // inside of it, with the camera sitting at its center.
+    const geometry = new THREE.SphereGeometry(500, 60, 40);
+    geometry.scale(-1, 1, 1);
+
+    const texture = new THREE.TextureLoader().load(imageUrl);
+    if ("colorSpace" in texture) texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({ map: texture });
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    let lon = 0;
+    let lat = 0;
+    let isDown = false;
+    let downX = 0;
+    let downY = 0;
+    let downLon = 0;
+    let downLat = 0;
+
+    const onPointerDown = (e) => {
+      isDown = true;
+      downX = e.clientX;
+      downY = e.clientY;
+      downLon = lon;
+      downLat = lat;
+      canvas.setPointerCapture?.(e.pointerId);
+    };
+    const onPointerMove = (e) => {
+      if (!isDown) return;
+      lon = (downX - e.clientX) * 0.18 + downLon;
+      lat = (e.clientY - downY) * 0.18 + downLat;
+      lat = Math.max(-85, Math.min(85, lat));
+    };
+    const onPointerUp = (e) => {
+      isDown = false;
+      canvas.releasePointerCapture?.(e.pointerId);
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointerleave", onPointerUp);
+
+    let rafId;
+    const animate = () => {
+      rafId = requestAnimationFrame(animate);
+      const phi = THREE.MathUtils.degToRad(90 - lat);
+      const theta = THREE.MathUtils.degToRad(lon);
+      const target = new THREE.Vector3(
+        500 * Math.sin(phi) * Math.cos(theta),
+        500 * Math.cos(phi),
+        500 * Math.sin(phi) * Math.sin(theta),
+      );
+      camera.lookAt(target);
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      canvas.removeEventListener("pointerdown", onPointerDown);
+      canvas.removeEventListener("pointermove", onPointerMove);
+      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointerleave", onPointerUp);
+      texture.dispose();
+      geometry.dispose();
+      material.dispose();
+      renderer.dispose();
+    };
+  }, [imageUrl, width, height]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={width}
+      height={height}
+      style={{ width, height, cursor: "grab", touchAction: "none" }}
+    />
+  );
+}
 
 // ── Small icon button ─────────────────────────────────────────────────────
 function IconBtn({
@@ -207,6 +307,7 @@ export default function CameraPreviewPanel({
 
   const hasImage = !!selectedCamera.image;
   const awaitingImage = !!selectedCamera.awaitingImage;
+  const isBubble = !!selectedCamera.isBubble;
   const isSegmented = viewMode === "segmented";
   const isProcessing = segState === "processing";
   const displayImage =
@@ -253,7 +354,7 @@ export default function CameraPreviewPanel({
             height="14"
             viewBox="0 0 24 24"
             fill="none"
-            stroke={awaitingImage ? "#06b6d4" : "#f97316"}
+            stroke={isBubble ? "#db2777" : awaitingImage ? "#06b6d4" : "#f97316"}
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -273,17 +374,23 @@ export default function CameraPreviewPanel({
             }}
           >
             {selectedCamera.name}
-            {awaitingImage && (
-              <span style={{ color: "#06b6d4", marginLeft: 6, fontSize: 10 }}>
-                • Manual
+            {isBubble ? (
+              <span style={{ color: "#db2777", marginLeft: 6, fontSize: 10 }}>
+                • Bubble
               </span>
+            ) : (
+              awaitingImage && (
+                <span style={{ color: "#06b6d4", marginLeft: 6, fontSize: 10 }}>
+                  • Manual
+                </span>
+              )
             )}
           </span>
         </div>
 
         {/* Right controls */}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {hasImage && !awaitingImage && (
+          {hasImage && !awaitingImage && !isBubble && (
             <IconBtn
               onClick={handleToggle}
               title={
@@ -347,7 +454,7 @@ export default function CameraPreviewPanel({
             gap: 14,
           }}
         >
-          <div style={{ fontSize: 36 }}>📷</div>
+          <div style={{ fontSize: 36 }}>{isBubble ? "🌐" : "📷"}</div>
           <div
             style={{
               color: "#cbd5e1",
@@ -356,10 +463,14 @@ export default function CameraPreviewPanel({
               textAlign: "center",
             }}
           >
-            Upload an image for this camera
+            {isBubble
+              ? "Upload a 360° image for this camera"
+              : "Upload an image for this camera"}
           </div>
           <div style={{ color: "#94a3b8", fontSize: 11, textAlign: "center" }}>
-            Supports JPG, PNG, WEBP — construction site photos recommended
+            {isBubble
+              ? "Supports JPG, PNG, WEBP — equirectangular 360° panoramas recommended"
+              : "Supports JPG, PNG, WEBP — construction site photos recommended"}
           </div>
           <input
             id="manualCamImageInput"
@@ -384,12 +495,12 @@ export default function CameraPreviewPanel({
               document.getElementById("manualCamImageInput").click()
             }
             style={{
-              border: "2px dashed #06b6d4",
+              border: `2px dashed ${isBubble ? "#db2777" : "#06b6d4"}`,
               borderRadius: 10,
               padding: "18px 32px",
               cursor: "pointer",
               textAlign: "center",
-              color: "#06b6d4",
+              color: isBubble ? "#db2777" : "#06b6d4",
               fontSize: 13,
               fontWeight: 600,
               width: "100%",
@@ -420,10 +531,16 @@ export default function CameraPreviewPanel({
                 fontWeight: 600,
               }}
             >
-              PHOTO
+              {isBubble ? "360° PHOTO" : "PHOTO"}
             </span>
 
-            {hasImage && (
+            {hasImage && isBubble && (
+              <span style={{ fontSize: 9, color: "#db2777", fontWeight: 600 }}>
+                🖱 Drag to look around
+              </span>
+            )}
+
+            {hasImage && !isBubble && (
               <div
                 style={{
                   display: "flex",
@@ -514,7 +631,13 @@ export default function CameraPreviewPanel({
               borderBottom: "1px solid rgba(255,255,255,0.05)",
             }}
           >
-            {hasImage ? (
+            {hasImage && isBubble ? (
+              <Bubble360View
+                imageUrl={selectedCamera.image}
+                width={PANEL_W}
+                height={PHOTO_H}
+              />
+            ) : hasImage ? (
               <>
                 <img
                   src={displayImage}

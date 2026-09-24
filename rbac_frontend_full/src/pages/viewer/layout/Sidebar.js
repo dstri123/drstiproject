@@ -32,7 +32,6 @@ const PANEL_LABELS = {
   alignment: "Alignment",
   cameras: "Cameras",
   matrix: "Camera Matrix",
-  export: "Export",
   settings: "Settings",
 };
 
@@ -696,6 +695,13 @@ export default function ContextPanel(props) {
           inactiveBorder="var(--tool-bim-border)"
           onClick={() => window.addCameraManually?.()}
         />
+        <ToolBtn
+          label="Bubble Camera"
+          inactiveBg="var(--tool-bim-soft)"
+          inactiveColor="var(--tool-bim)"
+          inactiveBorder="var(--tool-bim-border)"
+          onClick={() => window.addBubbleCameraManually?.()}
+        />
 
         {manualCameras && manualCameras.length > 0 && (
           <>
@@ -723,7 +729,11 @@ export default function ContextPanel(props) {
                   <span
                     style={{
                       fontSize: 7,
-                      color: cam.hasImage ? "#7c3aed" : "#0891b2",
+                      color: cam.isBubble
+                        ? "#db2777"
+                        : cam.hasImage
+                          ? "#7c3aed"
+                          : "#0891b2",
                       flexShrink: 0,
                     }}
                   >
@@ -799,27 +809,6 @@ export default function ContextPanel(props) {
           <KbdRow k="S" label="Zoom FOV" />
           <KbdRow k="Esc" label="Cancel" />
         </div>
-      </div>
-    ),
-
-    // ── EXPORT ────────────────────────────────────────────────────────────────
-    export: (
-      <div>
-        <SectionLabel text="Export Options" />
-        <ToolBtn
-          label="Export Matrix (.json)"
-          inactiveBg="var(--tool-export-soft)"
-          inactiveColor="var(--tool-export)"
-          inactiveBorder="var(--tool-export-border)"
-          onClick={() => window.exportMatrix?.()}
-        />
-        <ToolBtn
-          label="Export Camera Positions"
-          inactiveBg="var(--tool-export-soft)"
-          inactiveColor="var(--tool-export)"
-          inactiveBorder="var(--tool-export-border)"
-          onClick={() => window.exportCameraPositions?.()}
-        />
       </div>
     ),
 
@@ -1051,7 +1040,10 @@ function CategoryDropdown({
   // render triggered by that setOpen(true), so scrolling has to wait for it.
   useEffect(() => {
     if (highlightName && open && highlightRef.current) {
-      highlightRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      highlightRef.current.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
     }
   }, [highlightName, open]);
 
