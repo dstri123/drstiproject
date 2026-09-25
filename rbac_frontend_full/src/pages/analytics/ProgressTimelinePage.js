@@ -502,7 +502,7 @@ function changeLine(delta, prevLabel, noun = "completed") {
 }
 
 function prevIndexWith(dates, i, has) {
-  for (let j = i - 1; j >= 0; j--) if (has(dates[j])) return j;
+  for (let j = Math.min(i, dates.length) - 1; j >= 0; j--) if (dates[j] && has(dates[j])) return j;
   return -1;
 }
 
@@ -1413,11 +1413,14 @@ export default function ProgressTimelinePage() {
   const [loading, setLoading] = useState(true);
   const [dates, setDates] = useState([]);
   const [viewMode, setViewMode] = useState("last3");
-  const [selIdx, setSelIdx] = useState(0);
+  const [rawSelIdx, setSelIdx] = useState(0);
   const [openCat, setOpenCat] = useState(null);
   const [tip, setTip] = useState(null);
 
   const visibleDates = useMemo(() => applyViewMode(dates, viewMode), [dates, viewMode]);
+  // Switching view mode can shrink visibleDates before the effect below resets
+  // the selection, so clamp to keep the index in range for that render.
+  const selIdx = Math.max(0, Math.min(rawSelIdx, visibleDates.length - 1));
   const undatedCount = useMemo(
     () => dates.filter((d) => !parseISODate(d.pointcloud_date)).length,
     [dates],

@@ -56,7 +56,7 @@ import ProgressTimelinePage from "./pages/analytics/ProgressTimelinePage";
 export default function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           {/* 🔓 Public Routes (NO layout) */}
           <Route path="/" element={<Login />} />
@@ -128,6 +128,12 @@ export default function App() {
             Header/IconToolbar chrome instead of going through
             PersistentWorkspace or DashboardLayout. */}
         <Route path="/progress-timeline/:slug" element={<ProgressTimelinePage />} />
+
+        {/* Placeholders so React Router doesn't warn "No routes matched" —
+            PersistentWorkspace does the actual rendering for these paths. */}
+        <Route path="/viewer/:slug" element={null} />
+        <Route path="/analytics/:slug" element={null} />
+        <Route path="/progress/:slug" element={null} />
       </Routes>
       <PersistentWorkspace />
     </BrowserRouter>
