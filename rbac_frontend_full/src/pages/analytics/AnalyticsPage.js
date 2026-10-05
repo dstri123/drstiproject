@@ -53,6 +53,19 @@ async function fetchAsBlob(url) {
   return URL.createObjectURL(blob);
 }
 
+// Downloads a media file straight into an ArrayBuffer. Used for point clouds:
+// they can be hundreds of MB, and buffering that as a Blob (twice, when both
+// sides load at once) blows Chrome's blob-storage quota, which surfaces as
+// net::ERR_FAILED 200 / "Could not load".
+async function fetchAsArrayBuffer(url) {
+  const token = localStorage.getItem("token") || localStorage.getItem("access");
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Server returned ${res.status} for ${url}`);
+  return res.arrayBuffer();
+}
+
 let ifcLoaderSingleton = null;
 function getIfcLoader() {
   if (!ifcLoaderSingleton) {
@@ -753,56 +766,39 @@ function CompareScene({ uploadsByDate, initialDate }) {
         if (kind === "pc") {
           // Determine extension from the stored file path.
           const storedExt = (item.file || "").split(".").pop().toLowerCase();
-          let plyBlobUrl;
+          let plyBuffer;
 
           if (storedExt === "ply") {
-            // PLY: fetch and hand directly to PLYLoader.
-            plyBlobUrl = await fetchAsBlob(url);
+            // PLY: fetch into an ArrayBuffer and parse directly.
+            plyBuffer = await fetchAsArrayBuffer(url);
           } else {
             // Non-PLY (LAS/LAZ/PTS/XYZ): download raw, convert to PLY on the
             // backend so PLYLoader can render it with colors preserved.
-            const token =
-              localStorage.getItem("token") || localStorage.getItem("access");
-            const rawRes = await fetch(url, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (!rawRes.ok)
-              throw new Error(`Server returned ${rawRes.status} for ${url}`);
-            const rawBlob = await rawRes.blob();
+            const rawBuffer = await fetchAsArrayBuffer(url);
             const filename = (item.file || "cloud.las").split("/").pop();
             const fd = new FormData();
-            fd.append("file", rawBlob, filename);
+            fd.append("file", new Blob([rawBuffer]), filename);
             const convRes = await API.post(
               "processing/tools/pointcloud-to-ply/",
               fd,
-              { headers: { "Content-Type": "multipart/form-data" }, responseType: "blob" }
+              { headers: { "Content-Type": "multipart/form-data" }, responseType: "arraybuffer" }
             );
-            plyBlobUrl = URL.createObjectURL(convRes.data);
+            plyBuffer = convRes.data;
           }
 
-          await new Promise((resolve, reject) =>
-            new PLYLoader().load(
-              plyBlobUrl,
-              (geometry) => {
-                if (!geometry.attributes.color) {
-                  const n = geometry.attributes.position.count;
-                  geometry.setAttribute(
-                    "color",
-                    new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3),
-                  );
-                }
-                const pts = new THREE.Points(
-                  geometry,
-                  new THREE.PointsMaterial({ size: 0.03, vertexColors: true }),
-                );
-                finish(pts);
-                resolve();
-              },
-              undefined,
-              reject,
-            ),
+          const geometry = new PLYLoader().parse(plyBuffer);
+          if (!geometry.attributes.color) {
+            const n = geometry.attributes.position.count;
+            geometry.setAttribute(
+              "color",
+              new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3),
+            );
+          }
+          const pts = new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({ size: 0.03, vertexColors: true }),
           );
-          URL.revokeObjectURL(plyBlobUrl);
+          finish(pts);
         } else {
           const ext = url.split("?")[0].split(".").pop().toLowerCase();
           if (ext === "fbx") {

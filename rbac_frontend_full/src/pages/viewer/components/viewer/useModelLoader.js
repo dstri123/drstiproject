@@ -15,6 +15,7 @@ import API from "../../../../api/axios";
 // plus a worker script (web-ifc-mt.worker.js) that isn't shipped as a
 // fetchable file in the npm package.
 let ifcLoaderSingleton = null;
+let ifcLoadQueue = Promise.resolve();
 function getIfcLoader() {
   if (!ifcLoaderSingleton) {
     ifcLoaderSingleton = new IFCLoader();
@@ -120,6 +121,21 @@ const IFC_TYPE_CATEGORY_MAP = {
 // Exported so other consumers (e.g. usePicking.js, to know which sidebar
 // category a just-clicked element belongs to) categorize elements the exact
 // same way the sidebar's own category breakdown was built.
+// IFC type for one element, from the cache filled at load time, falling back
+// to web-ifc-three. Never throws: the library's registry can lose the model
+// ("Cannot read properties of undefined (reading 'types')").
+export function getSafeIfcType(model, expressID) {
+  if (!model || expressID == null) return null;
+  const cached = model.userData?.ifcTypeById?.get(expressID);
+  if (cached) return cached;
+  if (typeof model.getIfcType !== "function") return null;
+  try {
+    return model.getIfcType(expressID) || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export function categorizeElementName(name) {
   const n = (name || "").toLowerCase();
   for (const { category, keywords } of CATEGORY_KEYWORDS) {
@@ -576,17 +592,30 @@ export default function useModelLoader(sceneData, props) {
     return null;
   };
 
+  // Returns a URL the Three.js loaders can fetch. Remote sources are passed
+  // through as-is: the loaders fetch them straight into an ArrayBuffer, whereas
+  // downloading a 100+ MB model as a Blob first can exceed Chrome's
+  // blob-storage quota (net::ERR_FAILED). revokeObjectURL on a non-blob URL is
+  // a harmless no-op, so callers can keep revoking unconditionally.
   const createBlobUrl = async (source) => {
+    if (source?.url && !(source instanceof Blob)) return source.url;
     const blob = await resolveBlob(source);
     return blob ? URL.createObjectURL(blob) : null;
   };
 
   // Parse and render an IFC file directly in the browser (web-ifc WASM) — no
   // server round trip.
-  const loadIfcDirect = async (source) => {
-    const blob = await resolveBlob(source);
-    if (!blob) throw new Error("Unable to read IFC file.");
-    const url = URL.createObjectURL(blob);
+  const loadIfcDirect = (source) => {
+    // Serialise parses on the shared IFCLoader: overlapping parses corrupt
+    // web-ifc-three's model registry, which breaks per-element selection.
+    const run = ifcLoadQueue.then(() => loadIfcDirectNow(source));
+    ifcLoadQueue = run.catch(() => {});
+    return run;
+  };
+
+  const loadIfcDirectNow = async (source) => {
+    const url = await createBlobUrl(source);
+    if (!url) throw new Error("Unable to read IFC file.");
     try {
       const loader = getIfcLoader();
       const ifcModel = await new Promise((resolve, reject) => {
@@ -731,10 +760,16 @@ export default function useModelLoader(sceneData, props) {
       const expressIDs = isIfcModel ? collectIfcExpressIds(object) : null;
       if (expressIDs?.length) {
         meshCount = expressIDs.length;
+        // Cache every element's IFC type now, while web-ifc-three's model
+        // registry is known-good; later lookups (click, overlap) read this
+        // via getSafeIfcType instead of the registry, which can go stale.
+        const ifcTypeById = new Map();
+        object.userData.ifcTypeById = ifcTypeById;
         for (const expressID of expressIDs) {
           let ifcType = null;
           try {
             ifcType = object.getIfcType(expressID);
+            ifcTypeById.set(expressID, ifcType);
           } catch (e) {
             // web-ifc-three's internal types map can be unpopulated for a given
             // model (often from reusing the singleton IFCLoader across uploads

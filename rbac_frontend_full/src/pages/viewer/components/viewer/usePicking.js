@@ -3,7 +3,44 @@ import * as THREE from "three";
 import {
   categorizeIfcType,
   categorizeElementName,
+  getSafeIfcType,
 } from "./useModelLoader";
+
+// Builds a highlight mesh containing only the triangles of one IFC element,
+// using the geometry's per-vertex expressID attribute. Shares the source
+// position/normal buffers and is parented to the source mesh so it follows
+// every transform. Returns null when the element can't be isolated.
+function buildElementHighlight(mesh, expressID, material) {
+  const geometry = mesh?.geometry;
+  const ids = geometry?.attributes?.expressID?.array;
+  const position = geometry?.attributes?.position;
+  if (!ids || !position) return null;
+
+  const src = geometry.index?.array;
+  const triCount = src ? src.length : position.count;
+  const picked = [];
+  for (let i = 0; i + 2 < triCount; i += 3) {
+    const a = src ? src[i] : i;
+    if (ids[a] === expressID) {
+      picked.push(a, src ? src[i + 1] : i + 1, src ? src[i + 2] : i + 2);
+    }
+  }
+  if (!picked.length) return null;
+
+  const highlightGeom = new THREE.BufferGeometry();
+  highlightGeom.setAttribute("position", position);
+  if (geometry.attributes.normal) {
+    highlightGeom.setAttribute("normal", geometry.attributes.normal);
+  }
+  highlightGeom.setIndex(picked);
+
+  const highlight = new THREE.Mesh(highlightGeom, material);
+  highlight.renderOrder = 999;
+  // Don't let the highlight intercept later clicks.
+  highlight.raycast = () => {};
+  mesh.add(highlight);
+  return highlight;
+}
 
 export default function usePicking(sceneData, modelData, props) {
   const { sceneRef, cameraRef, rendererRef } = sceneData;
@@ -297,6 +334,26 @@ export default function usePicking(sceneData, modelData, props) {
               console.warn("IFC subset selection failed", err);
               subset = null;
             }
+
+            // web-ifc-three's createSubset depends on its internal model
+            // registry, which can get out of sync with the mesh on screen
+            // (e.g. overlapping loads on the shared IFCLoader). Build the
+            // highlight straight from the clicked mesh's per-vertex expressID
+            // instead, so only the clicked element lights up — never the
+            // whole merged IFC mesh.
+            if (!subset) {
+              subset = buildElementHighlight(
+                selectedMesh,
+                expressID,
+                subsetMaterial,
+              );
+              if (subset) {
+                subset.userData = { isIfcSelectionSubset: true, expressID };
+                selectedIfcSubsetRef.current = subset;
+              } else {
+                subsetMaterial.dispose();
+              }
+            }
           }
 
           if (!subset) {
@@ -315,7 +372,7 @@ export default function usePicking(sceneData, modelData, props) {
 
           const elementType =
             expressID != null && typeof bimModel?.getIfcType === "function"
-              ? bimModel.getIfcType(expressID)
+              ? getSafeIfcType(bimModel, expressID)
               : selectedMesh.type;
 
           selectedMesh.updateMatrixWorld(true);

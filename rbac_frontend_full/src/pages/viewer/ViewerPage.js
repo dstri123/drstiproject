@@ -121,10 +121,13 @@ export default function ViewerPage({
       return;
     }
     try {
-      const camResponse = await API.get(resolveRemoteUrl(cameraItem.file), {
-        responseType: "blob",
-      });
-      setCameraPositionsFile(camResponse.data);
+      // Pass the remote source through instead of downloading it as a blob:
+      // images.txt can be hundreds of MB, and a blob that size can blow
+      // Chrome's blob-storage quota (net::ERR_FAILED 200). Consumers read
+      // { url } sources as text/ArrayBuffer directly.
+      const source = createRemoteSource(cameraItem.file);
+      if (!source) throw new Error("Invalid camera file URL.");
+      setCameraPositionsFile(source);
       const rawName = cameraItem.file.split("?")[0].split("/").pop();
       setCameraFileName(decodeURIComponent(rawName) || "camera.txt");
     } catch (camErr) {
