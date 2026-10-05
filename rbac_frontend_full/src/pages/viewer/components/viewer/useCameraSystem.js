@@ -740,8 +740,9 @@ export default function useCameraSystem(sceneData, modelData, props) {
     } else {
       matrixAppliedRef.current = false;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    let cancelled = false;
+    const parseImagesTxt = (text) => {
+      if (cancelled) return;
       const parsed = [];
       // COLMAP images.txt alternates two lines per image: a pose line
       // (IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME) followed by
@@ -752,7 +753,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
       // line we expect next so POINTS2D lines are always skipped.
       let expectingPose = true;
 
-      e.target.result.split("\n").forEach((line) => {
+      text.split("\n").forEach((line) => {
         if (!line.trim() || line.startsWith("#")) return;
 
         if (!expectingPose) {
@@ -804,7 +805,24 @@ export default function useCameraSystem(sceneData, modelData, props) {
       originalPosRef.current = parsed;
       buildCameras(parsed);
     };
-    reader.readAsText(cameraPositionsFile);
+    // Local uploads are Files; project files arrive as a remote { url } source
+    // (read as text directly, never as a blob, so large images.txt files don't
+    // hit Chrome's blob-storage quota).
+    const readText =
+      typeof cameraPositionsFile.text === "function"
+        ? cameraPositionsFile.text()
+        : fetch(cameraPositionsFile.url || cameraPositionsFile).then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+          });
+    readText
+      .then(parseImagesTxt)
+      .catch((err) =>
+        console.error("Failed to load camera positions file", err),
+      );
+    return () => {
+      cancelled = true;
+    };
   }, [cameraPositionsFile, uploadedCameraMatrix, buildCameras, cleanupAll]);
   // ── show/hide all markers ─────────────────────────────────────────────────
   useEffect(() => {

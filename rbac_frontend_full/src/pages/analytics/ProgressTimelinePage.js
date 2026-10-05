@@ -1564,14 +1564,22 @@ export default function ProgressTimelinePage() {
               </div>
             ) : (
               <>
-                {/* View selector — scopes everything below */}
+                {/* View selector — scopes everything below; sticky so it stays
+                    reachable while scrolling. Negative margins + matching padding
+                    let its background cover the scroll container's 16px padding. */}
                 <div
                   style={{
+                    position: "sticky",
+                    top: -16,
+                    zIndex: 20,
                     display: "flex",
                     alignItems: "center",
                     flexWrap: "wrap",
                     gap: 8,
-                    marginBottom: 12,
+                    margin: "-16px -16px 12px",
+                    padding: "16px 16px 10px",
+                    background: "#f0f4f8",
+                    borderBottom: "1px solid #e5e7eb",
                   }}
                 >
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>View:</span>
