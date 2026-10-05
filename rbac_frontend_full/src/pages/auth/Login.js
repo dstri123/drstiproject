@@ -105,7 +105,7 @@ export default function Login() {
         </div>
 
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-black">Distri</h1>
+          <h1 className="text-2xl font-bold text-black">Drsti</h1>
           <p className="text-sm text-gray-600 mt-1">Next Generation Progress Analytics</p>
         </div>
 

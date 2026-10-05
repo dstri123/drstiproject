@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from "react";
 import * as THREE from "three";
+import { getSafeIfcType } from "./useModelLoader";
 
 // Voxel cell size in metres — also the overlap tolerance. A point counts as
 // "overlapping" if it falls in the same cell as some BIM surface vertex.
@@ -101,10 +102,7 @@ export default function useOverlap(sceneData, modelData, props) {
           if (elemIdx == null) {
             elemIdx = elemIndex++;
             elemExpressIdToIndex.set(expressID, elemIdx);
-            const ifcType =
-              typeof c.getIfcType === "function"
-                ? c.getIfcType(expressID)
-                : null;
+            const ifcType = getSafeIfcType(c, expressID);
             elemNames[elemIdx] =
               (ifcType ? `${ifcType} #${expressID}` : `IFC #${expressID}`) ||
               `Element ${elemIdx + 1}`;

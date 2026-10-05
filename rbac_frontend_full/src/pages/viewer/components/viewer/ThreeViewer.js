@@ -25,6 +25,7 @@ import usePointCloudSAMSegmentation from "./usePointCloudSAMSegmentation";
 import useGaussianSplatting from "./useGaussianSplatting";
 import useCameraSystem from "./useCameraSystem";
 import CameraPreviewPanel from "./CameraPreviewPanel";
+import CameraDataChart from "./CameraDataChart";
 import useTransformControls from "./useTransformControls";
 import useObjectSelection from "./useObjectSelection";
 import BlenderViewportGizmo from "../gizmo/BlenderViewportGizmo";
@@ -987,6 +988,7 @@ function ThreeViewer({
   // { [cameraId]: { [columnName]: value } }
   const [cameraTableData, setCameraTableData] = useState({});
   const [colorByColumn, setColorByColumn] = useState(null); // NEW
+  const [cameraChart, setCameraChart] = useState(null);
 
   // Camera IDs come from every posed camera currently in the scene
   // (parsed from the camera positions file + any manually added ones).
@@ -1005,6 +1007,8 @@ function ThreeViewer({
 
   const removeCameraTableColumn = useCallback((key) => {
     setCameraTableColumns((prev) => prev.filter((c) => c !== key));
+    setColorByColumn((prev) => (prev === key ? null : prev));
+    setCameraChart((prev) => (prev?.column === key ? null : prev));
     setCameraTableData((prev) => {
       const next = {};
       for (const [camId, row] of Object.entries(prev)) {
@@ -2130,6 +2134,10 @@ function ThreeViewer({
                 onClick={(e) => {
                   e.stopPropagation();
                   colorCamerasByColumn(cameraTableData, colorByColumn);
+                  setCameraChart({
+                    column: colorByColumn,
+                    data: cameraTableData,
+                  });
                 }}
                 style={{
                   padding: "4px 10px",
@@ -2149,6 +2157,7 @@ function ThreeViewer({
                 onClick={(e) => {
                   e.stopPropagation();
                   resetCameraColors();
+                  setCameraChart(null);
                 }}
                 style={{
                   padding: "4px 10px",
@@ -2164,6 +2173,15 @@ function ThreeViewer({
                 Reset
               </button>
             </div>
+          )}
+
+          {cameraChart && (
+            <CameraDataChart
+              column={cameraChart.column}
+              tableData={cameraChart.data}
+              cameraIds={cameraIds}
+              onClose={() => setCameraChart(null)}
+            />
           )}
 
           <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
