@@ -3,7 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, CheckCircle2, AlertCircle, Eye, EyeOff, Zap } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Zap,
+} from "lucide-react";
 import API from "../../api/axios";
 import Topbar from "../../layouts/Topbar";
 import { useToast } from "../../components/ToastContainer";
@@ -30,10 +38,18 @@ export default function CreateProjectContributor() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   // Check username availability
-  const { checking: checkingUsername, isAvailable: usernameAvailable, debouncedCheck } = useCheckUsername();
+  const {
+    checking: checkingUsername,
+    isAvailable: usernameAvailable,
+    debouncedCheck,
+  } = useCheckUsername();
 
   // Check email availability
-  const { checking: checkingEmail, isAvailable: emailAvailable, debouncedCheck: debouncedEmailCheck } = useCheckEmail();
+  const {
+    checking: checkingEmail,
+    isAvailable: emailAvailable,
+    debouncedCheck: debouncedEmailCheck,
+  } = useCheckEmail();
 
   useEffect(() => {
     if (formData.username.trim().length >= 3) {
@@ -166,7 +182,9 @@ export default function CreateProjectContributor() {
         err.response?.data?.detail ||
         err.response?.data?.error ||
         err.response?.data?.message ||
-        Object.values(err.response?.data || {}).flat().join(", ") ||
+        Object.values(err.response?.data || {})
+          .flat()
+          .join(", ") ||
         "Failed to create contributor";
       error(errorMsg);
       setErrors({ submit: errorMsg });
@@ -179,7 +197,10 @@ export default function CreateProjectContributor() {
     <>
       <Topbar />
 
-      <div className="px-4 sm:px-6 py-8 min-h-screen bg-white">
+      {/* Cancel DashboardLayout <main> padding (pt-20 under the h-16 Topbar,
+          px-4/sm:px-6, pb-6) so the white page sits flush against the sidebar
+          and top bar with no grey gutter. */}
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <button
@@ -191,9 +212,12 @@ export default function CreateProjectContributor() {
           </button>
 
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-black mb-1">Create Project Contributor</h1>
+            <h1 className="text-3xl font-bold text-black mb-1">
+              Create Project Contributor
+            </h1>
             <p className="text-sm text-gray-600">
-              Add a new team member (engineer, data contributor, or site engineer)
+              Add a new team member (engineer, data contributor, or site
+              engineer)
             </p>
           </div>
 
@@ -211,7 +235,10 @@ export default function CreateProjectContributor() {
               <div className="space-y-4">
                 {/* Username */}
                 <div className="space-y-2">
-                  <Label htmlFor="username" className="text-xs font-semibold text-black">
+                  <Label
+                    htmlFor="username"
+                    className="text-xs font-semibold text-black"
+                  >
                     Username *
                   </Label>
                   <Input
@@ -221,16 +248,22 @@ export default function CreateProjectContributor() {
                     onChange={handleInputChange}
                     placeholder="Enter username"
                     className={`text-sm ${
-                      errors.username ? "border-red-500" :
-                      formData.username && usernameAvailable ? "border-green-500" : ""
+                      errors.username
+                        ? "border-red-500"
+                        : formData.username && usernameAvailable
+                          ? "border-green-500"
+                          : ""
                     }`}
                   />
-                  {formData.username && usernameAvailable && !checkingUsername && !errors.username && (
-                    <p className="text-xs text-green-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Username is available
-                    </p>
-                  )}
+                  {formData.username &&
+                    usernameAvailable &&
+                    !checkingUsername &&
+                    !errors.username && (
+                      <p className="text-xs text-green-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Username is available
+                      </p>
+                    )}
                   {errors.username && (
                     <p className="text-xs text-red-700 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -242,7 +275,10 @@ export default function CreateProjectContributor() {
                 {/* Password */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-xs font-semibold text-black">
+                    <Label
+                      htmlFor="password"
+                      className="text-xs font-semibold text-black"
+                    >
                       Password *
                     </Label>
                     <button
@@ -263,7 +299,11 @@ export default function CreateProjectContributor() {
                       onChange={handleInputChange}
                       placeholder="Enter password"
                       className={`text-sm pr-10 ${
-                        errors.password ? "border-red-500" : formData.password ? "border-green-500" : ""
+                        errors.password
+                          ? "border-red-500"
+                          : formData.password
+                            ? "border-green-500"
+                            : ""
                       }`}
                     />
                     <button
@@ -288,7 +328,10 @@ export default function CreateProjectContributor() {
 
                 {/* Confirm Password */}
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-xs font-semibold text-black">
+                  <Label
+                    htmlFor="confirmPassword"
+                    className="text-xs font-semibold text-black"
+                  >
                     Confirm Password *
                   </Label>
                   <Input
@@ -299,16 +342,22 @@ export default function CreateProjectContributor() {
                     onChange={handleInputChange}
                     placeholder="Re-enter password"
                     className={`text-sm ${
-                      errors.confirmPassword ? "border-red-500" :
-                      formData.password && formData.confirmPassword === formData.password ? "border-green-500" : ""
+                      errors.confirmPassword
+                        ? "border-red-500"
+                        : formData.password &&
+                            formData.confirmPassword === formData.password
+                          ? "border-green-500"
+                          : ""
                     }`}
                   />
-                  {formData.password && formData.confirmPassword === formData.password && !errors.confirmPassword && (
-                    <p className="text-xs text-green-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Passwords match
-                    </p>
-                  )}
+                  {formData.password &&
+                    formData.confirmPassword === formData.password &&
+                    !errors.confirmPassword && (
+                      <p className="text-xs text-green-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Passwords match
+                      </p>
+                    )}
                   {errors.confirmPassword && (
                     <p className="text-xs text-red-700 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -331,7 +380,10 @@ export default function CreateProjectContributor() {
               <div className="space-y-4">
                 {/* Email */}
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-xs font-semibold text-black">
+                  <Label
+                    htmlFor="email"
+                    className="text-xs font-semibold text-black"
+                  >
                     Email Address *
                   </Label>
                   <Input
@@ -342,15 +394,21 @@ export default function CreateProjectContributor() {
                     onChange={handleInputChange}
                     placeholder="Enter email address"
                     className={`text-sm ${
-                      errors.email ? "border-red-500" : formData.email && isValidEmail(formData.email) ? "border-green-500" : ""
+                      errors.email
+                        ? "border-red-500"
+                        : formData.email && isValidEmail(formData.email)
+                          ? "border-green-500"
+                          : ""
                     }`}
                   />
-                  {formData.email && isValidEmail(formData.email) && !errors.email && (
-                    <p className="text-xs text-green-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Email is valid
-                    </p>
-                  )}
+                  {formData.email &&
+                    isValidEmail(formData.email) &&
+                    !errors.email && (
+                      <p className="text-xs text-green-700 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Email is valid
+                      </p>
+                    )}
                   {errors.email && (
                     <p className="text-xs text-red-700 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -362,7 +420,10 @@ export default function CreateProjectContributor() {
                 {/* First & Last Name */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label htmlFor="first_name" className="text-xs font-semibold text-black">
+                    <Label
+                      htmlFor="first_name"
+                      className="text-xs font-semibold text-black"
+                    >
                       First Name *
                     </Label>
                     <Input
@@ -372,16 +433,25 @@ export default function CreateProjectContributor() {
                       onChange={handleInputChange}
                       placeholder="First name"
                       className={`text-sm ${
-                        errors.first_name ? "border-red-500" : formData.first_name ? "border-green-500" : ""
+                        errors.first_name
+                          ? "border-red-500"
+                          : formData.first_name
+                            ? "border-green-500"
+                            : ""
                       }`}
                     />
                     {errors.first_name && (
-                      <p className="text-xs text-red-700">{errors.first_name}</p>
+                      <p className="text-xs text-red-700">
+                        {errors.first_name}
+                      </p>
                     )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="last_name" className="text-xs font-semibold text-black">
+                    <Label
+                      htmlFor="last_name"
+                      className="text-xs font-semibold text-black"
+                    >
                       Last Name *
                     </Label>
                     <Input
@@ -391,7 +461,11 @@ export default function CreateProjectContributor() {
                       onChange={handleInputChange}
                       placeholder="Last name"
                       className={`text-sm ${
-                        errors.last_name ? "border-red-500" : formData.last_name ? "border-green-500" : ""
+                        errors.last_name
+                          ? "border-red-500"
+                          : formData.last_name
+                            ? "border-green-500"
+                            : ""
                       }`}
                     />
                     {errors.last_name && (
@@ -402,7 +476,10 @@ export default function CreateProjectContributor() {
 
                 {/* Role Selection */}
                 <div className="space-y-2">
-                  <Label htmlFor="sub_role" className="text-xs font-semibold text-black">
+                  <Label
+                    htmlFor="sub_role"
+                    className="text-xs font-semibold text-black"
+                  >
                     Role *
                   </Label>
                   <select

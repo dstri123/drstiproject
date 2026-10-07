@@ -52,6 +52,7 @@ import PhotoUpload from "./pages/photos/PhotoUpload";
 // directly — PersistentWorkspace renders them as permanent, always-mounted
 // siblings of <Routes> so they survive navigation between each other.
 import ProgressTimelinePage from "./pages/analytics/ProgressTimelinePage";
+import ProjectDashboardPage from "./pages/dashboard/ProjectDashboardPage";
 
 export default function App() {
   return (
@@ -128,6 +129,10 @@ export default function App() {
             Header/IconToolbar chrome instead of going through
             PersistentWorkspace or DashboardLayout. */}
         <Route path="/progress-timeline/:slug" element={<ProgressTimelinePage />} />
+
+        {/* Project Dashboard — schedule upload + Gantt. Standalone like the
+            Progress Timeline (own Header/IconToolbar chrome). */}
+        <Route path="/project-dashboard/:slug" element={<ProjectDashboardPage />} />
 
         {/* Placeholders so React Router doesn't warn "No routes matched" —
             PersistentWorkspace does the actual rendering for these paths. */}

@@ -379,7 +379,10 @@ export default function PhotoUpload() {
   return (
     <>
       <Topbar />
-      <div className="min-h-screen bg-white">
+      {/* Cancel DashboardLayout <main> padding (pt-20 under the h-16 Topbar,
+          px-4/sm:px-6, pb-6) so the white page sits flush against the sidebar
+          and top bar with no grey gutter. */}
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 min-h-[calc(100vh-4rem)] bg-white">
         <div className="px-4 sm:px-6 py-8 max-w-7xl mx-auto space-y-6">
           {/* Back Button */}
           <Button
