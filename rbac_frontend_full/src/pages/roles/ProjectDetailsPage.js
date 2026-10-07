@@ -520,7 +520,10 @@ export default function ProjectDetailsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    // Cancel DashboardLayout <main> padding (pt-20 under the h-16 Topbar,
+    // px-4/sm:px-6, pb-6) so the white page sits flush against the sidebar
+    // and top bar with no grey gutter.
+    <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 min-h-[calc(100vh-4rem)] bg-white">
       <div className="px-4 sm:px-6 py-8 max-w-7xl mx-auto space-y-6">
         {/* Back Button */}
         <Button
@@ -540,8 +543,11 @@ export default function ProjectDetailsPage() {
               <h1 className="text-3xl font-bold text-black mb-2">
                 {projectName}
               </h1>
-              <p className="text-gray-600 mb-4">
-                Manage BIM, Point Cloud, and Image data for this project
+              {/* Full project description as entered by the admin — never
+                  truncated here (the dashboard card shows the short version). */}
+              <p className="text-gray-600 mb-4 whitespace-pre-line break-words">
+                {projectData?.description?.trim() ||
+                  "Manage BIM, Point Cloud, and Image data for this project"}
               </p>
               <Button
                 className="bg-black hover:bg-gray-900 text-white gap-2"

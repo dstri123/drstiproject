@@ -8,8 +8,11 @@ import {
 } from "./useConstructionSegmentation";
 
 const PANEL_W = 360;
-const PHOTO_H = 220;
+const photo_H = 220;
 const VIEW_H = 200;
+const HEADER_H = 40; // height of the viewer's top Header bar (layout/Header.js)
+const PANEL_GAP = 0; // flush against the header and the right edge
+const RIGHT_RAIL_W = 45; // ThreeViewer right icon rail: 44px + 1px left border
 
 // ── Spinning loader SVG ───────────────────────────────────────────────────
 const Spinner = ({ size = 14, color = "#f97316" }) => (
@@ -317,21 +320,27 @@ export default function CameraPreviewPanel({
   const allClasses = Object.values(CONSTRUCTION_CLASSES);
 
   const presentIds = new Set((segData?.presentClasses || []).map((c) => c.id));
+  // Photo box matches the 3D view exactly so the two line up one-to-one.
+  const photoH = VIEW_H;
 
   return (
     <div
       id="camera-preview"
       style={{
         position: "fixed",
-        top: "10px",
-        right: "10px",
+        // Sit inside the 3D viewport, below the app header, so the header's
+        // role pill and Back button stay visible.
+        top: HEADER_H + PANEL_GAP,
+        right: RIGHT_RAIL_W + PANEL_GAP, // keep the right icon rail uncovered
         width: PANEL_W,
+        maxHeight: `calc(100vh - ${HEADER_H + PANEL_GAP}px)`,
+        overflowY: "auto",
         zIndex: 9999,
         background: "rgba(8,8,14,0.97)",
         border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 12,
+        borderRadius: "0 0 0 12px", // only the free bottom-left corner is rounded
         boxShadow: "0 20px 60px rgba(0,0,0,0.90)",
-        overflow: "hidden",
+        overflowX: "hidden",
         userSelect: "none",
         fontFamily: "system-ui,sans-serif",
       }}
@@ -354,7 +363,9 @@ export default function CameraPreviewPanel({
             height="14"
             viewBox="0 0 24 24"
             fill="none"
-            stroke={isBubble ? "#db2777" : awaitingImage ? "#06b6d4" : "#f97316"}
+            stroke={
+              isBubble ? "#db2777" : awaitingImage ? "#06b6d4" : "#f97316"
+            }
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -621,7 +632,7 @@ export default function CameraPreviewPanel({
           <div
             style={{
               width: PANEL_W,
-              height: PHOTO_H,
+              height: photo_H,
               background: "#050508",
               display: "flex",
               alignItems: "center",
@@ -635,7 +646,7 @@ export default function CameraPreviewPanel({
               <Bubble360View
                 imageUrl={selectedCamera.image}
                 width={PANEL_W}
-                height={PHOTO_H}
+                height={photo_H}
               />
             ) : hasImage ? (
               <>
@@ -643,9 +654,10 @@ export default function CameraPreviewPanel({
                   src={displayImage}
                   alt="cam"
                   style={{
+                    display: "block",
                     width: "100%",
                     height: "100%",
-                    objectFit: "contain",
+                    objectFit: "cover",
                   }}
                 />
 
