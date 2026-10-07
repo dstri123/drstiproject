@@ -1,6 +1,5 @@
 import React, { useRef, useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { X, Eye, EyeOff, Trash2, ArrowLeft } from "lucide-react";
+import { X, Eye, EyeOff, Trash2 } from "lucide-react";
 import ElementMetadata from "../components/metadata/ElementMetadata";
 import { useToast } from "../../../components/ToastContainer";
 // ─── Spinner keyframes (injected once) ────────────────────────────────────────
@@ -31,12 +30,9 @@ const PANEL_LABELS = {
   picking: "Picking",
   alignment: "Alignment",
   cameras: "Cameras",
-  matrix: "Camera Matrix",
-  settings: "Settings",
 };
 
 export default function ContextPanel(props) {
-  const navigate = useNavigate();
   const {
     bimFile,
     pointFile,
@@ -703,6 +699,37 @@ export default function ContextPanel(props) {
           onClick={() => window.addBubbleCameraManually?.()}
         />
 
+        <div style={divider} />
+        <SectionLabel text="Camera Alignment Matrix" />
+        <UploadZone
+          label="Upload Camera Matrix (.json)"
+          accept=".json"
+          onFileSelected={(file) => window.handleCameraMatrixUpload?.(file)}
+        />
+        <ToolBtn
+          label="Apply Camera Matrix"
+          inactiveBg="var(--tool-bim-soft)"
+          inactiveColor="var(--tool-bim)"
+          inactiveBorder="var(--tool-bim-border)"
+          onClick={() => window.applyCameraMatrix?.()}
+        />
+        <ToolBtn
+          label="Export Camera Positions"
+          inactiveBg="var(--tool-export-soft)"
+          inactiveColor="var(--tool-export)"
+          inactiveBorder="var(--tool-export-border)"
+          onClick={() => window.exportCameraPositions?.()}
+        />
+
+        <div style={divider} />
+        <SectionLabel text="Keyboard Shortcuts" />
+        <div style={hintBox}>
+          <KbdRow k="G" label="Move" />
+          <KbdRow k="R" label="Rotate" />
+          <KbdRow k="S" label="Zoom FOV" />
+          <KbdRow k="Esc" label="Cancel" />
+        </div>
+
         {manualCameras && manualCameras.length > 0 && (
           <>
             <div style={divider} />
@@ -777,68 +804,6 @@ export default function ContextPanel(props) {
       </div>
     ),
 
-    // ── CAMERA MATRIX ─────────────────────────────────────────────────────────
-    matrix: (
-      <div>
-        <SectionLabel text="Camera Alignment Matrix" />
-        <UploadZone
-          label="Upload Camera Matrix (.json)"
-          accept=".json"
-          onFileSelected={(file) => window.handleCameraMatrixUpload?.(file)}
-        />
-        <ToolBtn
-          label="Apply Camera Matrix"
-          inactiveBg="var(--tool-bim-soft)"
-          inactiveColor="var(--tool-bim)"
-          inactiveBorder="var(--tool-bim-border)"
-          onClick={() => window.applyCameraMatrix?.()}
-        />
-        <ToolBtn
-          label="Export Camera Positions"
-          inactiveBg="var(--tool-export-soft)"
-          inactiveColor="var(--tool-export)"
-          inactiveBorder="var(--tool-export-border)"
-          onClick={() => window.exportCameraPositions?.()}
-        />
-
-        <div style={divider} />
-        <SectionLabel text="Keyboard Shortcuts" />
-        <div style={hintBox}>
-          <KbdRow k="G" label="Move" />
-          <KbdRow k="R" label="Rotate" />
-          <KbdRow k="S" label="Zoom FOV" />
-          <KbdRow k="Esc" label="Cancel" />
-        </div>
-      </div>
-    ),
-
-    // ── SETTINGS ──────────────────────────────────────────────────────────────
-    settings: (
-      <div>
-        <SectionLabel text="Keyboard Shortcuts" />
-        <div style={hintBox}>
-          <KbdRow k="G" label="Move camera" />
-          <KbdRow k="R" label="Rotate camera" />
-          <KbdRow k="S" label="Zoom FOV" />
-          <KbdRow k="Esc" label="Cancel operation" />
-        </div>
-        <div style={divider} />
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            ...btn,
-            background: "#f3f4f6",
-            borderColor: "#e5e7eb",
-            color: "#6b7280",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <ArrowLeft size={12} /> Back to Dashboard
-        </button>
-      </div>
-    ),
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
