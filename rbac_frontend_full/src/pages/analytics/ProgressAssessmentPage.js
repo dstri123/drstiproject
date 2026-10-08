@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
-import IconToolbar from "../viewer/layout/IconToolbar";
 import { useToast } from "../../components/ToastContainer";
 import {
   FolderOpen,
@@ -2651,7 +2650,6 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
   const isActiveTab = /^\/progress\//.test(location.pathname);
   const navigate = useNavigate();
   const toast = useToast();
-  const role = localStorage.getItem("role") || "viewer";
 
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
@@ -3035,13 +3033,6 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
     >
       <Header />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <IconToolbar
-          activePanel={null}
-          onSelectPanel={() => {}}
-          role={role}
-          projectSlug={routeParam}
-        />
-
         <div
           style={{
             flex: 1,
