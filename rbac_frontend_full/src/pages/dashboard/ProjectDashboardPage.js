@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
-import IconToolbar from "../viewer/layout/IconToolbar";
 import { useToast } from "../../components/ToastContainer";
 import { parseScheduleFile, parseDay, workdaysBetween } from "./scheduleParser";
 import GanttChart, { fmtRange } from "./GanttChart";
@@ -137,7 +136,6 @@ export default function ProjectDashboardPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const role = localStorage.getItem("role") || "viewer";
   const fileRef = useRef(null);
   const ganttRef = useRef(null);
 
@@ -319,8 +317,6 @@ export default function ProjectDashboardPage() {
     >
       <Header />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <IconToolbar activePanel={null} onSelectPanel={() => {}} role={role} projectSlug={slug} />
-
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
           <input
             ref={fileRef}

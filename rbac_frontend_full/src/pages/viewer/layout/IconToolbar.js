@@ -9,8 +9,6 @@ import {
   AlignCenter,
   Camera,
   BarChart2,
-  Boxes,
-  ChartGantt,
 } from "lucide-react";
 
 const TOOLS = [
@@ -40,15 +38,11 @@ export default function IconToolbar({
 
   const isViewer = role === "viewer";
   const isAnalytics = location.pathname.startsWith("/analytics");
-  const isProgress = location.pathname.startsWith("/progress");
-  const isDashboard = location.pathname.startsWith("/project-dashboard");
   const isViewerPage = location.pathname.startsWith("/viewer");
   const items = TOOLS.filter((t) => !t.adminOnly || !isViewer);
 
   const NAV_ITEMS = [
     { id: "analytics", icon: BarChart2, label: "Analytics" },
-    { id: "progress", icon: Boxes, label: "Progress Assessment" },
-    { id: "dashboard", icon: ChartGantt, label: "Project Dashboard" },
   ];
 
   const handleNavClick = (item) => {
@@ -57,18 +51,6 @@ export default function IconToolbar({
         navigate(projectSlug ? `/viewer/${projectSlug}` : -1);
       } else {
         navigate(projectSlug ? `/analytics/${projectSlug}` : "/analytics/");
-      }
-    } else if (item.id === "progress") {
-      if (isProgress) {
-        navigate(projectSlug ? `/viewer/${projectSlug}` : -1);
-      } else {
-        navigate(projectSlug ? `/progress/${projectSlug}` : "/progress/");
-      }
-    } else if (item.id === "dashboard") {
-      if (isDashboard) {
-        navigate(projectSlug ? `/viewer/${projectSlug}` : -1);
-      } else {
-        navigate(projectSlug ? `/project-dashboard/${projectSlug}` : -1);
       }
     } else {
       navigate(item.path);
@@ -90,9 +72,7 @@ export default function IconToolbar({
     // Panel tools are active when their panel is open.
     // The Analytics nav item is active while the Analytics page is open.
     const isActive = isNav
-      ? (id === "analytics" && isAnalytics) ||
-        (id === "progress" && isProgress) ||
-        (id === "dashboard" && isDashboard)
+      ? id === "analytics" && isAnalytics
       : activePanel === id;
     const isHovered = hovered === id;
 
@@ -174,15 +154,7 @@ export default function IconToolbar({
               ? isAnalytics
                 ? "Close Analytics"
                 : "Open Analytics"
-              : id === "progress"
-                ? isProgress
-                  ? "Close Progress Assessment"
-                  : "Open Progress Assessment"
-                : id === "dashboard"
-                  ? isDashboard
-                    ? "Close Project Dashboard"
-                    : "Open Project Dashboard"
-                  : label}
+              : label}
           </div>
         )}
       </div>

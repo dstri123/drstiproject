@@ -7,6 +7,11 @@ import {
   Image as ImageIcon,
   Cuboid,
   Folder,
+  Boxes,
+  ChartGantt,
+  Briefcase,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import API from "../../api/axios";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +24,8 @@ export default function DataDashboard() {
   const [allProjects, setAllProjects] = useState([]);
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
+  // Project whose "Project Management" options are expanded (one at a time).
+  const [openMgmtId, setOpenMgmtId] = useState(null);
   const navigate = useNavigate();
 
   const fetchProjects = async () => {
@@ -308,6 +315,73 @@ export default function DataDashboard() {
                         3D Viewer
                       </Button>
                     </div>
+
+                    {/* Project Management — reveals Project Overview and
+                        Progress Monitoring (moved here from the viewer's
+                        left toolbar). */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setOpenMgmtId((id) =>
+                          id === project.id ? null : project.id,
+                        )
+                      }
+                      className={`w-full text-xs border-gray-300 ${
+                        openMgmtId === project.id
+                          ? "bg-black text-white hover:bg-gray-800 hover:text-white"
+                          : "text-black hover:bg-gray-50"
+                      }`}
+                    >
+                      <Briefcase className="w-3 h-3 mr-1" />
+                      Project Management
+                      <ChevronDown
+                        className={`w-3 h-3 ml-1 transition-transform ${
+                          openMgmtId === project.id ? "rotate-180" : ""
+                        }`}
+                      />
+                    </Button>
+
+                    {openMgmtId === project.id && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          {
+                            key: "overview",
+                            icon: ChartGantt,
+                            title: "Project Overview",
+                            subtitle: "Schedule & Gantt",
+                            path: `/project-dashboard/${createProjectSlug(project)}`,
+                          },
+                          {
+                            key: "progress",
+                            icon: Boxes,
+                            title: "Progress Monitoring",
+                            subtitle: "Scan vs BIM progress",
+                            path: `/progress/${createProjectSlug(project)}`,
+                          },
+                        ].map(({ key, icon: Icon, title, subtitle, path }) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => navigate(path)}
+                            className="group flex items-center gap-2.5 rounded-lg border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-2.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-gray-900 hover:shadow-md"
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gray-900 text-white transition-colors group-hover:bg-blue-600">
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-semibold text-gray-900">
+                                {title}
+                              </span>
+                              <span className="block truncate text-[10px] text-gray-500">
+                                {subtitle}
+                              </span>
+                            </span>
+                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-900" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

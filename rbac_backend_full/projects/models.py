@@ -142,3 +142,26 @@ class ProjectImage(models.Model):
 
     def __str__(self):
         return self.original_name or self.image.name
+
+class EnvironmentalData(models.Model):
+    """Per-camera environmental readings for one project on one date.
+
+    Entered by data contributors on the project's upload-data page and
+    visualised (colour-by-column) in the viewer's camera data table.
+    `rows` is keyed by camera id (the image NAME from COLMAP images.txt):
+    { "DJI_0001.JPG": { "Temperature": "31.2", ... }, ... }
+    """
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    date = models.DateField()
+    columns = models.JSONField(default=list, blank=True)
+    rows = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["project", "date"], name="unique_environmental_data_per_project_date"),
+        ]
+
+    def __str__(self):
+        return f"{self.project.project_name} - {self.date}"

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import Project, ProjectUser
 from .models import BIMData, PointCloudData, ProjectImage
-from .models import CameraFile, MatrixFile
+from .models import CameraFile, MatrixFile, EnvironmentalData
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -64,3 +64,19 @@ class MatrixFileSerializer(serializers.ModelSerializer):
         model = MatrixFile
         fields = "__all__"
         read_only_fields = ["project"]
+
+class EnvironmentalDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EnvironmentalData
+        fields = '__all__'
+        read_only_fields = ['project']
+
+    def validate_columns(self, value):
+        if not isinstance(value, list) or not all(isinstance(c, str) for c in value):
+            raise serializers.ValidationError("columns must be a list of strings.")
+        return value
+
+    def validate_rows(self, value):
+        if not isinstance(value, dict) or not all(isinstance(r, dict) for r in value.values()):
+            raise serializers.ValidationError("rows must be an object of {cameraId: {column: value}}.")
+        return value

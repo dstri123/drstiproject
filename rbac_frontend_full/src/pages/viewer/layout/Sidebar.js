@@ -79,7 +79,9 @@ export default function ContextPanel(props) {
   } = props;
 
   const { info, success } = useToast();
-
+  // Data contributors can view models but not upload new BIM / point-cloud files.
+  const role = localStorage.getItem("role") || "viewer";
+  const uploadDisabled = role === "data_contributor";
   const [activeMode, setActiveMode] = useState(null);
   // Import/Apply Matrix is an advanced/interop feature — collapsed by default.
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -149,12 +151,14 @@ export default function ContextPanel(props) {
           label="Upload BIM (.fbx / .ifc)"
           accept=".fbx,.ifc"
           onFileSelected={setBimFile}
+          disabled={uploadDisabled}
         />
         <SectionLabel text="Point Cloud" />
         <UploadZone
           label="Upload PointCloud (.ply / .las / .laz / .plz)"
           accept=".ply,.las,.laz,.plz,.e57,.pts,.xyz"
           onFileSelected={setPointFile}
+          disabled={uploadDisabled}
         />
       </div>
     ),
@@ -803,7 +807,6 @@ export default function ContextPanel(props) {
         )}
       </div>
     ),
-
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1145,17 +1148,18 @@ function IconBtn({ title, danger, onClick, children }) {
   );
 }
 
-function UploadZone({ label, accept, onFileSelected }) {
+function UploadZone({ label, accept, onFileSelected, disabled = false }) {
   const ref = useRef(null);
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
-    if (file) onFileSelected?.(file);
+    if (file && !disabled) onFileSelected?.(file);
     e.target.value = "";
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
+    if (disabled) return;
     const file = e.dataTransfer.files?.[0];
     if (file) onFileSelected?.(file);
   };
@@ -1163,38 +1167,52 @@ function UploadZone({ label, accept, onFileSelected }) {
   return (
     <div style={{ marginBottom: 7 }}>
       <div
-        onClick={() => ref.current?.click()}
+        aria-disabled={disabled}
+        title={
+          disabled
+            ? "Your role does not have permission to upload files"
+            : undefined
+        }
+        onClick={() => {
+          if (!disabled) ref.current?.click();
+        }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         style={{
-          border: "1px dashed #d1d5db",
+          border: "1px dashed #D1D5DB",
           borderRadius: 6,
           padding: "10px 8px",
-          cursor: "pointer",
-          background: "#f9fafb",
+          cursor: disabled ? "not-allowed" : "pointer",
+          background: disabled ? "#F3F4F6" : "#F9FAFB",
+          opacity: disabled ? 0.55 : 1,
           textAlign: "center",
           transition: "border-color 0.15s, background 0.15s",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "#93c5fd";
-          e.currentTarget.style.background = "#eff6ff";
+          if (disabled) return;
+          e.currentTarget.style.borderColor = "#93C5FD";
+          e.currentTarget.style.background = "#EFF6FF";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "#d1d5db";
-          e.currentTarget.style.background = "#f9fafb";
+          if (disabled) return;
+          e.currentTarget.style.borderColor = "#D1D5DB";
+          e.currentTarget.style.background = "#F9FAFB";
         }}
       >
         <div style={{ fontSize: 11, fontWeight: 500, color: "#374151" }}>
           {label}
         </div>
-        <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
-          Click or drop file
+        <div style={{ fontSize: 10, color: "#9CA3AF", marginTop: 2 }}>
+          {disabled
+            ? "Upload not permitted for your role"
+            : "Click or drop file"}
         </div>
       </div>
       <input
         ref={ref}
         type="file"
         accept={accept}
+        disabled={disabled}
         style={{ display: "none" }}
         onChange={handleFile}
       />

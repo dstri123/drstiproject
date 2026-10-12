@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
-import IconToolbar from "../viewer/layout/IconToolbar";
 import { useToast } from "../../components/ToastContainer";
 import { FolderOpen, CalendarRange, ArrowLeft, Loader, Download } from "lucide-react";
 
@@ -1406,7 +1405,6 @@ export default function ProgressTimelinePage() {
   const { slug } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const role = localStorage.getItem("role") || "viewer";
 
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
@@ -1491,13 +1489,6 @@ export default function ProgressTimelinePage() {
     >
       <Header />
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        <IconToolbar
-          activePanel={null}
-          onSelectPanel={() => {}}
-          role={role}
-          projectSlug={slug}
-        />
-
         <div
           style={{
             flex: 1,
