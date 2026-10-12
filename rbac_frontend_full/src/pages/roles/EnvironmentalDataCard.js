@@ -76,7 +76,6 @@ export default function EnvironmentalDataCard({ projectId }) {
     API.get(`projects/${projectId}/camera/`)
       .then((res) => setCameraFiles(res.data || []))
       .catch(() => setCameraFiles([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // Load the saved dataset for the selected date.
@@ -98,7 +97,6 @@ export default function EnvironmentalDataCard({ projectId }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, date]);
 
   // Camera ids come from the camera (images.txt) file for the selected date.
@@ -174,7 +172,9 @@ export default function EnvironmentalDataCard({ projectId }) {
   // Pasting a multi-line column (e.g. from Excel) fills downward.
   const handlePaste = (e, startCamId, col) => {
     const text = e.clipboardData.getData("text");
-    const values = text.split(/\r?\n/).filter((v, i, arr) => v !== "" || i < arr.length - 1);
+    const values = text
+      .split(/\r?\n/)
+      .filter((v, i, arr) => v !== "" || i < arr.length - 1);
     if (values.length <= 1) return;
     e.preventDefault();
     const start = cameraIds.indexOf(startCamId);
@@ -201,7 +201,8 @@ export default function EnvironmentalDataCard({ projectId }) {
       const kept = {};
       columns.forEach((c) => {
         const v = vals?.[c];
-        if (v !== undefined && String(v).trim() !== "") kept[c] = String(v).trim();
+        if (v !== undefined && String(v).trim() !== "")
+          kept[c] = String(v).trim();
       });
       if (Object.keys(kept).length) cleanRows[id] = kept;
     });
@@ -225,7 +226,8 @@ export default function EnvironmentalDataCard({ projectId }) {
   };
 
   const remove = async () => {
-    if (!recordId || !window.confirm(`Delete environmental data for ${date}?`)) return;
+    if (!recordId || !window.confirm(`Delete environmental data for ${date}?`))
+      return;
     try {
       await API.delete(`environmental/${recordId}/delete/`);
       setRecordId(null);
@@ -235,7 +237,9 @@ export default function EnvironmentalDataCard({ projectId }) {
       await fetchSavedDates();
       success("Environmental data deleted.");
     } catch (err) {
-      error(err.response?.data?.error || "Failed to delete environmental data.");
+      error(
+        err.response?.data?.error || "Failed to delete environmental data.",
+      );
     }
   };
 
@@ -310,7 +314,9 @@ export default function EnvironmentalDataCard({ projectId }) {
         <p className="text-xs text-gray-500">
           {cameraSource
             ? `Camera IDs from "${cameraSource.batch_name}" camera file (${cameraSource.date})${
-                String(cameraSource.date) !== date ? " — no camera file on this date, using latest" : ""
+                String(cameraSource.date) !== date
+                  ? " — no camera file on this date, using latest"
+                  : ""
               }.`
             : "No camera file uploaded yet — add camera IDs manually below."}
         </p>
@@ -324,7 +330,11 @@ export default function EnvironmentalDataCard({ projectId }) {
               onKeyDown={(e) => e.key === "Enter" && addColumn()}
               placeholder="New column (e.g. Temperature °C)"
             />
-            <Button variant="outline" onClick={addColumn} className="border-gray-300 shrink-0">
+            <Button
+              variant="outline"
+              onClick={addColumn}
+              className="border-gray-300 shrink-0"
+            >
               <Plus className="w-4 h-4 mr-1" /> Column
             </Button>
           </div>
@@ -335,7 +345,11 @@ export default function EnvironmentalDataCard({ projectId }) {
               onKeyDown={(e) => e.key === "Enter" && addCamera()}
               placeholder="Camera ID (e.g. DJI_0001.JPG)"
             />
-            <Button variant="outline" onClick={addCamera} className="border-gray-300 shrink-0">
+            <Button
+              variant="outline"
+              onClick={addCamera}
+              className="border-gray-300 shrink-0"
+            >
               <Plus className="w-4 h-4 mr-1" /> Camera
             </Button>
           </div>
@@ -389,10 +403,15 @@ export default function EnvironmentalDataCard({ projectId }) {
                       {camId}
                     </td>
                     {columns.map((col) => (
-                      <td key={col} className="px-1 py-1 border-b border-l border-gray-100">
+                      <td
+                        key={col}
+                        className="px-1 py-1 border-b border-l border-gray-100"
+                      >
                         <input
                           value={rows[camId]?.[col] ?? ""}
-                          onChange={(e) => updateCell(camId, col, e.target.value)}
+                          onChange={(e) =>
+                            updateCell(camId, col, e.target.value)
+                          }
                           onPaste={(e) => handlePaste(e, camId, col)}
                           className="w-full min-w-[90px] px-2 py-1 rounded border border-transparent hover:border-gray-200 focus:border-black focus:outline-none bg-transparent"
                         />
@@ -406,7 +425,8 @@ export default function EnvironmentalDataCard({ projectId }) {
         )}
         {columns.length === 0 && cameraIds.length > 0 && (
           <p className="text-xs text-gray-500">
-            Add a column to start entering values. Tip: paste a column from Excel into the first cell to fill downward.
+            Add a column to start entering values. Tip: paste a column from
+            Excel into the first cell to fill downward.
           </p>
         )}
       </CardContent>

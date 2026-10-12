@@ -8,8 +8,8 @@ from accounts.permissions import RolePermission
 from accounts.models import User
 
 from .models import Project, ProjectUser
-from .models import CameraFile, MatrixFile, EnvironmentalData
-from .serializers import CameraFileSerializer, MatrixFileSerializer, EnvironmentalDataSerializer
+from .models import CameraFile, MatrixFile, EnvironmentalData, GaussianFile
+from .serializers import CameraFileSerializer, MatrixFileSerializer, EnvironmentalDataSerializer, GaussianFileSerializer
 
 
 
@@ -963,5 +963,45 @@ class EnvironmentalDataDeleteView(APIView):
         obj = get_object_or_404(EnvironmentalData, id=pk)
         if not user_can_upload_to_project(request.user, obj.project):
             return Response({"error": "You are not assigned to this project"}, status=403)
+        obj.delete()
+        return Response({"message": "Deleted"})
+
+
+class GaussianFileView(APIView):
+    """GET: the project's Gaussian-splatting files (newest date first),
+    optionally filtered with ?kind=points3d|cameras|trained_ply.
+    POST (multipart): upload one file with `kind` and `date`."""
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request, project_id):
+        data = GaussianFile.objects.filter(project_id=project_id)
+        kind = request.query_params.get("kind")
+        if kind:
+            data = data.filter(kind=kind)
+        serializer = GaussianFileSerializer(
+            data.order_by("-date", "-uploaded_at", "-id"), many=True, context={"request": request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request, project_id):
+        project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
+        serializer = GaussianFileSerializer(data=request.data, context={"request": request})
+        if serializer.is_valid():
+            upload = request.FILES.get("file")
+            serializer.save(project=project, original_name=getattr(upload, "name", ""))
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+
+class GaussianFileDeleteView(APIView):
+    def delete(self, request, pk):
+        obj = get_object_or_404(GaussianFile, id=pk)
+        if not user_can_upload_to_project(request.user, obj.project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+        if obj.file:
+            obj.file.delete(save=False)
         obj.delete()
         return Response({"message": "Deleted"})

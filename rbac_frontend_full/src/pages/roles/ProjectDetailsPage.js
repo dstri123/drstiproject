@@ -30,6 +30,7 @@ import API from "../../api/axios";
 import { createProjectSlug } from "@/lib/utils";
 import { useToast } from "../../components/ToastContainer";
 import EnvironmentalDataCard from "./EnvironmentalDataCard";
+import GaussianFileCard from "./GaussianFileCard";
 
 export default function ProjectDetailsPage() {
   const { slug } = useParams();
@@ -707,7 +708,31 @@ export default function ProjectDetailsPage() {
           </CardContent>
         </Card>
 
+        <GaussianFileCard
+          projectId={projectId}
+          kind="points3d"
+          title="COLMAP points3D.txt"
+          description="Sparse points used to train Gaussian splats in the 3D viewer"
+          accept=".txt"
+        />
+
+        <GaussianFileCard
+          projectId={projectId}
+          kind="cameras"
+          title="COLMAP cameras.txt"
+          description="Camera intrinsics used to train Gaussian splats in the 3D viewer"
+          accept=".txt"
+        />
+
         <EnvironmentalDataCard projectId={projectId} />
+
+        <GaussianFileCard
+          projectId={projectId}
+          kind="trained_ply"
+          title="Trained Gaussian Splat"
+          description="An already-trained Gaussian .ply, shown directly in the 3D viewer"
+          accept=".ply"
+        />
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog
