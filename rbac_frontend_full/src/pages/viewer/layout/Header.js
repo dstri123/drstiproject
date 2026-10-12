@@ -1,5 +1,4 @@
 import React from "react";
-import { ArrowLeft, LayoutDashboard } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const DASHBOARD_PATHS = {
@@ -103,7 +102,7 @@ export default function Header() {
         3D Workspace
       </div>
 
-      {/* RIGHT — role pill + back */}
+      {/* RIGHT — role pill */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span
           style={{
@@ -118,37 +117,6 @@ export default function Header() {
         >
           {role}
         </span>
-
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "4px 10px",
-            background: "transparent",
-            border: "1px solid #e5e7eb",
-            borderRadius: 5,
-            color: "#9ca3af",
-            fontSize: 11,
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#f3f4f6";
-            e.currentTarget.style.color = "#374151";
-            e.currentTarget.style.borderColor = "#d1d5db";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "#9ca3af";
-            e.currentTarget.style.borderColor = "#e5e7eb";
-          }}
-        >
-          <ArrowLeft size={12} />
-          Back
-        </button>
       </div>
     </div>
   );
