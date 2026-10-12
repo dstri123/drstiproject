@@ -823,6 +823,8 @@ export default function ViewerPage({
         </div>
 
         <ThreeViewer
+          projectId={id}
+          selectedDate={selectedDate}
           bimFile={bimFile}
           pointFile={pointFile}
           onBimPointsChange={setBimPoints}

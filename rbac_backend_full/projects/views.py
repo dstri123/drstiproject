@@ -8,8 +8,8 @@ from accounts.permissions import RolePermission
 from accounts.models import User
 
 from .models import Project, ProjectUser
-from .models import CameraFile, MatrixFile
-from .serializers import CameraFileSerializer, MatrixFileSerializer
+from .models import CameraFile, MatrixFile, EnvironmentalData
+from .serializers import CameraFileSerializer, MatrixFileSerializer, EnvironmentalDataSerializer
 
 
 
@@ -926,3 +926,42 @@ class PointCloudUpdateView(APIView):
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
+
+class EnvironmentalDataView(APIView):
+    """GET: every saved environmental dataset for the project (newest date
+    first), or just one date with ?date=YYYY-MM-DD.
+    POST: create or replace the dataset for `date` (one per project/date)."""
+    parser_classes = [JSONParser]
+
+    def get(self, request, project_id):
+        data = EnvironmentalData.objects.filter(project_id=project_id)
+        date = request.query_params.get("date")
+        if date:
+            data = data.filter(date=date)
+        serializer = EnvironmentalDataSerializer(data.order_by("-date", "-id"), many=True)
+        return Response(serializer.data)
+
+    def post(self, request, project_id):
+        project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
+        date = request.data.get("date")
+        if not date:
+            return Response({"date": "This field is required."}, status=400)
+
+        existing = EnvironmentalData.objects.filter(project=project, date=date).first()
+        serializer = EnvironmentalDataSerializer(existing, data=request.data)
+        if serializer.is_valid():
+            serializer.save(project=project)
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+
+class EnvironmentalDataDeleteView(APIView):
+    def delete(self, request, pk):
+        obj = get_object_or_404(EnvironmentalData, id=pk)
+        if not user_can_upload_to_project(request.user, obj.project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+        obj.delete()
+        return Response({"message": "Deleted"})

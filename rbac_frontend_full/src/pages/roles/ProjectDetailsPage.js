@@ -29,6 +29,7 @@ import { useLocation, useParams, useNavigate } from "react-router-dom";
 import API from "../../api/axios";
 import { createProjectSlug } from "@/lib/utils";
 import { useToast } from "../../components/ToastContainer";
+import EnvironmentalDataCard from "./EnvironmentalDataCard";
 
 export default function ProjectDetailsPage() {
   const { slug } = useParams();
@@ -705,6 +706,8 @@ export default function ProjectDetailsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <EnvironmentalDataCard projectId={projectId} />
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog

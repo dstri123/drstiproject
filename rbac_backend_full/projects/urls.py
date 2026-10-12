@@ -29,4 +29,6 @@ urlpatterns = [
     path("projects/<int:project_id>/matrix/", MatrixFileView.as_view()),
     path("matrix/<int:pk>/delete/", MatrixDeleteView.as_view()),
     path("matrix/<int:pk>/update/", MatrixUpdateView.as_view()),
+    path("projects/<int:project_id>/environmental/", EnvironmentalDataView.as_view()),
+    path("environmental/<int:pk>/delete/", EnvironmentalDataDeleteView.as_view()),
 ]

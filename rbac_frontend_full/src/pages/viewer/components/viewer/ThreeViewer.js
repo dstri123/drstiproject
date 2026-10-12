@@ -11,7 +11,6 @@ import {
   Loader2,
   Route,
   Table2,
-  X,
   Sparkles,
 } from "lucide-react";
 import * as THREE from "three";
@@ -981,50 +980,55 @@ function ThreeViewer({
     [modelData],
   );
 
-  // ── Camera data table (Camera ID + user-defined columns) ─────────────────
+  // ── Camera data table (environmental data, read-only) ──────────────────
+  // Values are entered by data contributors on the project's upload-data
+  // page (Environmental Data card) and stored per project + date. The viewer
+  // only loads them and colours the camera markers by a chosen column.
   const cameraTableOpen = activePanel === "cameraTable";
-  // Extra columns beyond "Camera ID", e.g. ["Notes", "Status"]
+  const { projectId, selectedDate } = props;
   const [cameraTableColumns, setCameraTableColumns] = useState([]);
   // { [cameraId]: { [columnName]: value } }
   const [cameraTableData, setCameraTableData] = useState({});
-  const [colorByColumn, setColorByColumn] = useState(null); // NEW
+  const [cameraTableDate, setCameraTableDate] = useState(null);
+  const [cameraTableLoading, setCameraTableLoading] = useState(false);
+  const [colorByColumn, setColorByColumn] = useState(null);
   const [cameraChart, setCameraChart] = useState(null);
 
-  // Camera IDs come from every posed camera currently in the scene
-  // (parsed from the camera positions file + any manually added ones).
-  // const cameraIds = (allCameras || [])
-  //   .map((cam) => cam.userData?.imageName || cam.userData?.name)
-  //   .filter(Boolean);
+  // (Re)load whenever the panel opens or the project/date changes. Uses the
+  // dataset for the selected date; otherwise the most recent one on or
+  // before it; otherwise the newest saved dataset.
+  useEffect(() => {
+    if (!cameraTableOpen || !projectId) return;
+    let cancelled = false;
+    setCameraTableLoading(true);
+    API.get(`projects/${projectId}/environmental/`)
+      .then((res) => {
+        if (cancelled) return;
+        const list = res.data || []; // newest date first
+        const rec =
+          (selectedDate && list.find((r) => r.date === selectedDate)) ||
+          (selectedDate && list.find((r) => r.date <= selectedDate)) ||
+          list[0] ||
+          null;
+        const cols = rec?.columns || [];
+        setCameraTableColumns(cols);
+        setCameraTableData(rec?.rows || {});
+        setCameraTableDate(rec?.date || null);
+        setColorByColumn((prev) => (prev && cols.includes(prev) ? prev : null));
+        setCameraChart(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCameraTableColumns([]);
+        setCameraTableData({});
+        setCameraTableDate(null);
+      })
+      .finally(() => !cancelled && setCameraTableLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraTableOpen, projectId, selectedDate]);
 
-  const addCameraTableColumn = useCallback(() => {
-    const name = window.prompt("New column name:");
-    const key = name?.trim();
-    if (!key) return;
-    setCameraTableColumns((prev) =>
-      prev.includes(key) ? prev : [...prev, key],
-    );
-  }, []);
-
-  const removeCameraTableColumn = useCallback((key) => {
-    setCameraTableColumns((prev) => prev.filter((c) => c !== key));
-    setColorByColumn((prev) => (prev === key ? null : prev));
-    setCameraChart((prev) => (prev?.column === key ? null : prev));
-    setCameraTableData((prev) => {
-      const next = {};
-      for (const [camId, row] of Object.entries(prev)) {
-        const { [key]: _drop, ...rest } = row;
-        next[camId] = rest;
-      }
-      return next;
-    });
-  }, []);
-
-  const updateCameraTableCell = useCallback((camId, key, value) => {
-    setCameraTableData((prev) => ({
-      ...prev,
-      [camId]: { ...(prev[camId] || {}), [key]: value },
-    }));
-  }, []);
   // Per-model scale factor (1 = auto-placed size).
   const [scaleFactor, setScaleFactor] = useState({
     "BIM Model": 1,
@@ -1192,33 +1196,6 @@ function ThreeViewer({
   const cameraIds = (allCameras || [])
     .map((cam) => cam.userData?.imageName || cam.userData?.name)
     .filter(Boolean);
-
-  // ── NEW: paste multi-line clipboard content into a column ─────────────────
-  const handleColumnPaste = useCallback(
-    (e, startCamId, col) => {
-      const text = e.clipboardData?.getData("text");
-      if (!text || !text.includes("\n")) return;
-
-      e.preventDefault();
-      const values = text
-        .split(/\r?\n/)
-        .filter((v, i, arr) => !(i === arr.length - 1 && v === ""));
-
-      const startIdx = cameraIds.indexOf(startCamId);
-      if (startIdx === -1) return;
-
-      setCameraTableData((prev) => {
-        const next = { ...prev };
-        values.forEach((val, i) => {
-          const camId = cameraIds[startIdx + i];
-          if (!camId) return;
-          next[camId] = { ...(next[camId] || {}), [col]: val.trim() };
-        });
-        return next;
-      });
-    },
-    [cameraIds],
-  );
 
   useEffect(() => {
     onManualCamerasChange?.({
@@ -2077,26 +2054,34 @@ function ThreeViewer({
               flexShrink: 0,
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 700 }}>Camera Data</div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                addCameraTableColumn();
-              }}
-              style={{
-                padding: "4px 10px",
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 8,
-                border: "1px solid #cbd5e1",
-                background: "#f8fafc",
-                color: "#0f172a",
-                cursor: "pointer",
-              }}
-            >
-              + Column
-            </button>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              Environmental Data
+            </div>
+            {cameraTableDate && (
+              <span
+                title={
+                  selectedDate && cameraTableDate !== selectedDate
+                    ? `No data saved for ${selectedDate} — showing nearest earlier date`
+                    : "Data date"
+                }
+                style={{
+                  padding: "3px 8px",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  background:
+                    selectedDate && cameraTableDate !== selectedDate
+                      ? "#fef3c7"
+                      : "#eef2ff",
+                  color:
+                    selectedDate && cameraTableDate !== selectedDate
+                      ? "#92400e"
+                      : "#3730a3",
+                }}
+              >
+                {cameraTableDate}
+              </span>
+            )}
           </div>
           {cameraTableColumns.length > 0 && (
             <div
@@ -2222,34 +2207,7 @@ function ThreeViewer({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <span>{col}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeCameraTableColumn(col);
-                          }}
-                          title={`Remove column "${col}"`}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#94a3b8",
-                            cursor: "pointer",
-                            display: "grid",
-                            placeItems: "center",
-                            padding: 0,
-                          }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
+                      {col}
                     </th>
                   ))}
                 </tr>
@@ -2261,8 +2219,7 @@ function ThreeViewer({
                       colSpan={1 + cameraTableColumns.length}
                       style={{ padding: "12px 8px", color: "#94a3b8" }}
                     >
-                      No cameras loaded yet — load a camera positions file or
-                      add a camera manually.
+                      No cameras loaded yet — load a camera positions file.
                     </td>
                   </tr>
                 )}
@@ -2282,26 +2239,16 @@ function ThreeViewer({
                       <td
                         key={col}
                         style={{
-                          padding: "4px 6px",
+                          padding: "6px 8px",
                           borderBottom: "1px solid #f1f5f9",
+                          fontSize: 11,
+                          color: cameraTableData[camId]?.[col]
+                            ? "#0f172a"
+                            : "#cbd5e1",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        <input
-                          value={cameraTableData[camId]?.[col] ?? ""}
-                          onChange={(e) =>
-                            updateCameraTableCell(camId, col, e.target.value)
-                          }
-                          onPaste={(e) => handleColumnPaste(e, camId, col)}
-                          placeholder="—"
-                          style={{
-                            width: "100%",
-                            padding: "4px 6px",
-                            fontSize: 11,
-                            borderRadius: 6,
-                            border: "1px solid #e2e8f0",
-                            outline: "none",
-                          }}
-                        />
+                        {cameraTableData[camId]?.[col] ?? "—"}
                       </td>
                     ))}
                   </tr>
@@ -2310,11 +2257,18 @@ function ThreeViewer({
             </table>
           </div>
 
-          {cameraTableColumns.length === 0 && cameraIds.length > 0 && (
+          {cameraTableLoading ? (
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
-              Click "+ Column" to add fields (e.g. Notes, Status) that you can
-              fill in per camera.
+              Loading environmental data…
             </div>
+          ) : (
+            cameraTableColumns.length === 0 && (
+              <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
+                No environmental data saved for this project yet. Data
+                contributors can add it under Projects → Upload Data →
+                Environmental Data.
+              </div>
+            )
           )}
         </div>
       )}
