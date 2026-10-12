@@ -31,4 +31,6 @@ urlpatterns = [
     path("matrix/<int:pk>/update/", MatrixUpdateView.as_view()),
     path("projects/<int:project_id>/environmental/", EnvironmentalDataView.as_view()),
     path("environmental/<int:pk>/delete/", EnvironmentalDataDeleteView.as_view()),
+    path("projects/<int:project_id>/gaussian-files/", GaussianFileView.as_view()),
+    path("gaussian-files/<int:pk>/delete/", GaussianFileDeleteView.as_view()),
 ]

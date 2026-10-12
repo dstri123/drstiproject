@@ -210,7 +210,10 @@ def _render(points, colours, opacity, scales, rotations, pose, camera, height, w
 
 
 def _write_ply(path, points, colours, opacity, scales, rotations):
+    # The comment marks this app's layout (activations already applied) so
+    # the viewer can tell it apart from standard pre-activation exports.
     header = ("ply\nformat binary_little_endian 1.0\n"
+              "comment drsti activated\n"
               f"element vertex {len(points)}\n"
               "property float x\nproperty float y\nproperty float z\n"
               "property float f_dc_0\nproperty float f_dc_1\nproperty float f_dc_2\n"
