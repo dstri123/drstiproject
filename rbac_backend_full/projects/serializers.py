@@ -1,7 +1,10 @@
+import os
+
 from rest_framework import serializers
 from .models import Project, ProjectUser
 from .models import BIMData, PointCloudData, ProjectImage
 from .models import CameraFile, MatrixFile, EnvironmentalData
+from .models import GaussianFile, GAUSSIAN_FILE_EXTENSIONS
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -80,3 +83,21 @@ class EnvironmentalDataSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict) or not all(isinstance(r, dict) for r in value.values()):
             raise serializers.ValidationError("rows must be an object of {cameraId: {column: value}}.")
         return value
+
+
+class GaussianFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GaussianFile
+        fields = '__all__'
+        read_only_fields = ['project', 'original_name']
+
+    def validate(self, attrs):
+        kind = attrs.get('kind')
+        upload = attrs.get('file')
+        if upload is not None:
+            ext = os.path.splitext(upload.name)[1].lower()
+            allowed = GAUSSIAN_FILE_EXTENSIONS.get(kind, [])
+            if ext not in allowed:
+                raise serializers.ValidationError(
+                    {'file': f"{kind} must be a {' / '.join(allowed)} file."})
+        return attrs

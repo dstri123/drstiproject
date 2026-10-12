@@ -339,6 +339,9 @@ function parseGaussianPlyGeneric(buffer) {
   const hasDc = ["f_dc_0", "f_dc_1", "f_dc_2"].every(
     (key) => key in offsetByName,
   );
+  // PLYs written by this app's own trainer (see gaussian_splatting._write_ply)
+  // already have opacity/colour activations applied.
+  const activated = lines.includes("comment drsti activated");
 
   const data = new DataView(buffer, headerEnd + marker.length);
   const readFloat = (rowOffset, name) => {
@@ -382,7 +385,13 @@ function parseGaussianPlyGeneric(buffer) {
     positions[index * 3 + 1] = readFloat(rowOffset, "y");
     positions[index * 3 + 2] = readFloat(rowOffset, "z");
 
-    if (hasDc) {
+    if (hasDc && activated) {
+      for (let axis = 0; axis < 3; axis += 1)
+        colours[index * 3 + axis] = Math.max(
+          0,
+          Math.min(1, readFloat(rowOffset, `f_dc_${axis}`) + 0.5),
+        );
+    } else if (hasDc) {
       colours[index * 3] = Math.max(
         0,
         Math.min(1, 0.5 + SH_C0 * readFloat(rowOffset, "f_dc_0")),
@@ -405,7 +414,10 @@ function parseGaussianPlyGeneric(buffer) {
     // Real trainers store the pre-activation opacity/scale (a sigmoid/exp is
     // applied at render time), unlike this app's own trainer which bakes the
     // activation in before writing — see `parseGaussianPly` above.
-    opacities[index] = sigmoid(readFloat(rowOffset, "opacity"));
+    const rawOpacity = readFloat(rowOffset, "opacity");
+    opacities[index] = activated
+      ? Math.max(0, Math.min(1, rawOpacity))
+      : sigmoid(rawOpacity);
     scales[index * 3] = Math.exp(readFloat(rowOffset, "scale_0"));
     scales[index * 3 + 1] = Math.exp(readFloat(rowOffset, "scale_1"));
     scales[index * 3 + 2] = Math.exp(readFloat(rowOffset, "scale_2"));
@@ -475,6 +487,8 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
   const [isLoading, setIsLoading] = useState(false);
   const [pointCount, setPointCount] = useState(0);
   const [error, setError] = useState(null);
+  // Which panel option produced (or is producing) the splats.
+  const [mode, setMode] = useState(null); // 'trained' | 'train' | null
 
   const removeSplats = useCallback(() => {
     const group = groupRef.current;
@@ -496,8 +510,13 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
       !cameraPositionsFile ||
       !cameraImages.length
     ) {
-      const message =
-        "Upload cameras.txt, images.txt, points3d.txt, and the matching construction images.";
+      const missing = [
+        !gaussianPointFile && "points3D.txt",
+        !gaussianCamerasFile && "cameras.txt",
+        !cameraPositionsFile && "images.txt camera file",
+        !cameraImages.length && "images",
+      ].filter(Boolean);
+      const message = `Missing ${missing.join(", ")} — upload them on the project's data page.`;
       setError(message);
       throw new Error(message);
     }
@@ -603,13 +622,14 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
     [cameraRef, controlsRef],
   );
 
-  // Load an already-trained Gaussian .ply straight from disk — no server
-  // round-trip. Used when the user supplies their own trained model instead
-  // of the COLMAP-files-in/train-on-the-server flow above.
+  // Load an already-trained Gaussian .ply (a local File or a saved { url }
+  // source) — no training. Used for the trained model a contributor uploads
+  // on the project page instead of the COLMAP-files-in/train flow above.
   const loadSplatsFromFile = useCallback(
     async (file) => {
       if (!sceneRef.current || !file) {
-        const message = "Select a trained Gaussian .ply file first.";
+        const message =
+          "No trained Gaussian .ply has been uploaded for this project.";
         setError(message);
         throw new Error(message);
       }
@@ -617,7 +637,7 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
       setError(null);
       try {
         removeSplats();
-        const buffer = await file.arrayBuffer();
+        const buffer = await readSource(file);
         const object = createGaussianObject(parseGaussianPlyGeneric(buffer));
         const group = new THREE.Group();
         group.name = "Uploaded Gaussian Splatting model";
@@ -638,6 +658,34 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
     },
     [frameCameraOn, removeSplats, sceneRef],
   );
+
+  // Explicit entry points for the viewer's Gaussian panel: show the uploaded
+  // trained model, or train a new one from the project's COLMAP files.
+  const showTrainedGaussian = useCallback(async () => {
+    setMode("trained");
+    try {
+      await loadSplatsFromFile(gaussianPlyFile);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [gaussianPlyFile, loadSplatsFromFile]);
+
+  const trainGaussian = useCallback(async () => {
+    setMode("train");
+    try {
+      await buildSplats();
+      return true;
+    } catch {
+      return false;
+    }
+  }, [buildSplats]);
+
+  const hideGaussian = useCallback(() => {
+    removeSplats();
+    setIsVisible(false);
+    setMode(null);
+  }, [removeSplats]);
 
   const toggleGaussianSplatting = useCallback(async () => {
     if (isVisible) {
@@ -667,6 +715,7 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
     if (!sceneReady) return undefined;
     removeSplats();
     setIsVisible(false);
+    setMode(null);
     setError(null);
     return undefined;
   }, [
@@ -681,6 +730,10 @@ export default function useGaussianSplatting(sceneData, modelData, props) {
 
   return {
     toggleGaussianSplatting,
+    showTrainedGaussian,
+    trainGaussian,
+    hideGaussian,
+    gaussianMode: mode,
     isGaussianVisible: isVisible,
     isGaussianLoading: isLoading,
     gaussianPointCount: pointCount,

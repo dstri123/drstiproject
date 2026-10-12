@@ -165,3 +165,34 @@ class EnvironmentalData(models.Model):
 
     def __str__(self):
         return f"{self.project.project_name} - {self.date}"
+
+
+GAUSSIAN_FILE_EXTENSIONS = {
+    "points3d": [".txt"],
+    "cameras": [".txt"],
+    "trained_ply": [".ply"],
+}
+
+
+class GaussianFile(models.Model):
+    """Gaussian-splatting inputs/outputs uploaded on the project's data page.
+
+    `points3d` / `cameras` are COLMAP points3D.txt / cameras.txt used (with
+    the project's images.txt camera file and images) to train splats in the
+    viewer; `trained_ply` is an already-trained Gaussian .ply shown directly.
+    """
+    KIND_CHOICES = [
+        ("points3d", "COLMAP points3D.txt"),
+        ("cameras", "COLMAP cameras.txt"),
+        ("trained_ply", "Trained Gaussian .ply"),
+    ]
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    file = models.FileField(upload_to="gaussian_files/")
+    original_name = models.CharField(max_length=255, blank=True)
+    date = models.DateField()
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.project.project_name} - {self.kind} - {self.date}"

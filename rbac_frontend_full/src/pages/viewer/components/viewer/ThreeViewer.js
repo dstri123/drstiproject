@@ -103,20 +103,6 @@ function FlatToolbarButton({
   );
 }
 
-// Thin separator between toolbar groups.
-function ToolbarDivider() {
-  return (
-    <div
-      style={{
-        width: 28,
-        height: 1,
-        background: "rgba(15, 23, 42, 0.12)",
-        margin: "2px 0",
-      }}
-    />
-  );
-}
-
 function ThreeViewer({
   onManualCamerasChange,
   onModelDataChange,
@@ -135,11 +121,16 @@ function ThreeViewer({
   // Only one right-rail panel can be open at a time. Opening one closes
   // whichever other panel was open (matches the left IconToolbar's behavior).
   const [activePanel, setActivePanel] = useState(null); // 'rotate' | 'sectionBox' | 'cameraTable' | 'geoMap' | 'gaussian' | null
-  const [gaussianPointFile, setGaussianPointFile] = useState(null);
-  const [gaussianCamerasFile, setGaussianCamerasFile] = useState(null);
-  // An already-trained Gaussian .ply the user supplies directly — skips the
-  // COLMAP-files-in/train-on-the-server flow entirely.
-  const [gaussianPlyFile, setGaussianPlyFile] = useState(null);
+  // Gaussian-splatting files saved by contributors on the project's data
+  // page: { points3d, cameras, trained_ply }, each a { url, name, date }
+  // source or null. Loaded in the Gaussian panel section below.
+  const [gaussianFiles, setGaussianFiles] = useState({});
+  const [gaussianFilesLoading, setGaussianFilesLoading] = useState(false);
+  const {
+    points3d: gaussianPointFile = null,
+    cameras: gaussianCamerasFile = null,
+    trained_ply: gaussianPlyFile = null,
+  } = gaussianFiles;
   const geoMapOpen = activePanel === "geoMap";
   const [geoLocation, setGeoLocation] = useState({
     latitude: "12.9716",
@@ -1185,6 +1176,49 @@ function ThreeViewer({
 
   const gaussianPanelOpen = activePanel === "gaussian";
 
+  // (Re)load the saved Gaussian files whenever the panel opens or the
+  // project/date changes. Per kind: that date's upload, else the newest one
+  // on or before it, else the newest overall. Unchanged sources keep their
+  // identity so reopening the panel doesn't clear splats already shown.
+  useEffect(() => {
+    if (!gaussianPanelOpen || !projectId) return;
+    let cancelled = false;
+    setGaussianFilesLoading(true);
+    API.get(`projects/${projectId}/gaussian-files/`)
+      .then((res) => {
+        if (cancelled) return;
+        const list = res.data || []; // newest date first
+        const pick = (kind) => {
+          const items = list.filter((f) => f.kind === kind && f.file);
+          const item =
+            (selectedDate && items.find((f) => f.date === selectedDate)) ||
+            (selectedDate && items.find((f) => f.date <= selectedDate)) ||
+            items[0];
+          if (!item) return null;
+          return {
+            id: item.id,
+            url: new URL(item.file, API.defaults.baseURL).href,
+            name: item.original_name || item.file.split("/").pop(),
+            date: item.date,
+          };
+        };
+        setGaussianFiles((prev) => {
+          const next = {};
+          ["points3d", "cameras", "trained_ply"].forEach((kind) => {
+            const source = pick(kind);
+            next[kind] =
+              source && prev[kind]?.url === source.url ? prev[kind] : source;
+          });
+          return next;
+        });
+      })
+      .catch(() => !cancelled && setGaussianFiles({}))
+      .finally(() => !cancelled && setGaussianFilesLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [gaussianPanelOpen, projectId, selectedDate]);
+
   useEffect(() => {
     window.toggleSectionBox = toggleSectionBox;
     return () => {
@@ -1562,137 +1596,157 @@ function ThreeViewer({
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 5 }}>
             Gaussian splatting
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: "#64748B",
-              lineHeight: 1.45,
-              marginBottom: 12,
-            }}
-          >
-            Already have a trained Gaussian model? Upload its .ply below and
-            click Show. Otherwise, train one from COLMAP files further down —
-            that runs on the Django server.
-          </div>
-          <label
-            style={{
-              display: "block",
-              fontSize: 11,
-              color: "#475569",
-              marginBottom: 12,
-            }}
-          >
-            Trained Gaussian model (.ply)
-            <input
-              type="file"
-              accept=".ply"
-              onChange={(event) =>
-                setGaussianPlyFile(event.target.files?.[0] || null)
-              }
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 5,
-                fontSize: 11,
-              }}
-            />
-          </label>
-
-          <ToolbarDivider />
-
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "#475569",
-              margin: "10px 0 8px",
-            }}
-          >
-            Or train from COLMAP files
-          </div>
-          <label
-            style={{
-              display: "block",
-              fontSize: 11,
-              color: "#475569",
-              marginBottom: 9,
-            }}
-          >
-            points3d.txt
-            <input
-              type="file"
-              accept=".txt"
-              onChange={(event) =>
-                setGaussianPointFile(event.target.files?.[0] || null)
-              }
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 5,
-                fontSize: 11,
-              }}
-            />
-          </label>
-          <label
-            style={{
-              display: "block",
-              fontSize: 11,
-              color: "#475569",
-              marginBottom: 12,
-            }}
-          >
-            cameras.txt
-            <input
-              type="file"
-              accept=".txt"
-              onChange={(event) =>
-                setGaussianCamerasFile(event.target.files?.[0] || null)
-              }
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 5,
-                fontSize: 11,
-              }}
-            />
-          </label>
           {(() => {
-            const canShowUploaded = Boolean(gaussianPlyFile);
+            const loading = gaussianData.isGaussianLoading;
+            const visible = gaussianData.isGaussianVisible;
+            const mode = gaussianData.gaussianMode;
+            const canShowTrained = Boolean(gaussianPlyFile);
             const canTrain =
               Boolean(gaussianPointFile) &&
               Boolean(gaussianCamerasFile) &&
               Boolean(props.cameraImages?.length) &&
               Boolean(props.cameraPositionsFile);
-            const disabled =
-              gaussianData.isGaussianLoading || (!canShowUploaded && !canTrain);
-            return (
-              <button
-                type="button"
-                onClick={() => gaussianData.toggleGaussianSplatting()}
-                disabled={disabled}
+            const fileLine = (label, source) => (
+              <div
+                key={label}
                 style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  borderRadius: 7,
-                  border: "1px solid #C4B5FD",
-                  background: gaussianData.isGaussianVisible
-                    ? "#EDE9FE"
-                    : "#F8FAFC",
-                  color: "#5B21B6",
-                  cursor: disabled ? "not-allowed" : "pointer",
-                  opacity: disabled ? 0.55 : 1,
-                  fontSize: 12,
-                  fontWeight: 700,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  fontSize: 10.5,
+                  color: source ? "#475569" : "#B91C1C",
+                  lineHeight: 1.5,
                 }}
               >
-                {gaussianData.isGaussianLoading
-                  ? canShowUploaded
-                    ? "Loading Gaussian model..."
-                    : "Training Gaussian model..."
-                  : gaussianData.isGaussianVisible
-                    ? `Hide splats (${gaussianData.gaussianPointCount.toLocaleString()})`
-                    : "Show Gaussian splats"}
-              </button>
+                <span>{label}</span>
+                <span
+                  title={source?.name}
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: 140,
+                  }}
+                >
+                  {source
+                    ? source.date
+                      ? `${source.name} · ${source.date}`
+                      : source.name
+                    : "not uploaded"}
+                </span>
+              </div>
+            );
+            const optionStyle = (enabled, selected) => ({
+              width: "100%",
+              textAlign: "left",
+              padding: "9px 10px",
+              borderRadius: 8,
+              border: `1px solid ${selected ? "#7C3AED" : "#C4B5FD"}`,
+              background: selected ? "#EDE9FE" : "#F8FAFC",
+              color: "#5B21B6",
+              cursor: enabled ? "pointer" : "not-allowed",
+              opacity: enabled ? 1 : 0.55,
+              fontSize: 12,
+              fontWeight: 700,
+            });
+            return (
+              <>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "#64748B",
+                    lineHeight: 1.45,
+                    marginBottom: 10,
+                  }}
+                >
+                  Uses the files uploaded on the project's data page
+                  {selectedDate ? ` (for ${selectedDate} or earlier)` : ""}.
+                </div>
+                {gaussianFilesLoading ? (
+                  <div style={{ fontSize: 11, color: "#64748B" }}>
+                    Loading saved files...
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={loading || !canShowTrained}
+                      onClick={() => gaussianData.showTrainedGaussian()}
+                      style={optionStyle(
+                        !loading && canShowTrained,
+                        visible && mode === "trained",
+                      )}
+                    >
+                      1. Show Gaussian splat using trained model
+                    </button>
+                    <div style={{ margin: "4px 2px 10px" }}>
+                      {fileLine("Trained .ply", gaussianPlyFile)}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={loading || !canTrain}
+                      onClick={() => gaussianData.trainGaussian()}
+                      style={optionStyle(
+                        !loading && canTrain,
+                        visible && mode === "train",
+                      )}
+                    >
+                      2. Train using all your files
+                    </button>
+                    <div style={{ margin: "4px 2px 10px" }}>
+                      {fileLine("points3D.txt", gaussianPointFile)}
+                      {fileLine("cameras.txt", gaussianCamerasFile)}
+                      {fileLine(
+                        "images.txt",
+                        props.cameraPositionsFile
+                          ? { name: props.cameraPositionsFile.name }
+                          : null,
+                      )}
+                      {fileLine(
+                        "Images",
+                        props.cameraImages?.length
+                          ? { name: `${props.cameraImages.length} images` }
+                          : null,
+                      )}
+                    </div>
+
+                    {loading && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#5B21B6",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {mode === "train"
+                          ? "Training Gaussian model on the server..."
+                          : "Loading trained Gaussian model..."}
+                      </div>
+                    )}
+                    {visible && !loading && (
+                      <button
+                        type="button"
+                        onClick={() => gaussianData.hideGaussian()}
+                        style={{
+                          width: "100%",
+                          padding: "7px 10px",
+                          borderRadius: 7,
+                          border: "1px solid #CBD5E1",
+                          background: "#fff",
+                          color: "#334155",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
+                        Hide splats (
+                        {gaussianData.gaussianPointCount.toLocaleString()})
+                      </button>
+                    )}
+                  </>
+                )}
+              </>
             );
           })()}
           {gaussianData.gaussianError && (
