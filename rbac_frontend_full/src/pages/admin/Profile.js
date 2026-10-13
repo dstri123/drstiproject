@@ -240,7 +240,7 @@ export default function AdminProfile() {
     <>
       <Topbar />
 
-      <div className="px-4 sm:px-6 py-8 min-h-screen bg-white">
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="mb-8">

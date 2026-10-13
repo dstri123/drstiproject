@@ -166,7 +166,7 @@ export default function EditOrganization() {
     return (
       <>
         <Topbar />
-        <div className="flex justify-center items-center min-h-screen">
+        <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 flex justify-center items-center min-h-[calc(100vh-4rem)] bg-white">
           <Loader2 className="w-8 h-8 animate-spin text-black" />
         </div>
       </>
@@ -181,7 +181,7 @@ export default function EditOrganization() {
     <>
       <Topbar />
 
-      <div className="px-4 sm:px-6 py-8 min-h-screen bg-white">
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <button
