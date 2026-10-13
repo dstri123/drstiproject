@@ -2,7 +2,6 @@ import { useLocation, Outlet } from "react-router-dom";
 import { useState } from "react";
 import Topbar from "./Topbar";
 import Sidebar from "./Sidebar";
-import Breadcrumb from "../components/Breadcrumb";
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -54,7 +53,6 @@ export default function DashboardLayout() {
           showSidebar ? "md:ml-60" : "ml-0"
         }`}
       >
-        <Breadcrumb />
         <Outlet />
       </main>
     </div>

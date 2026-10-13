@@ -72,7 +72,8 @@ export default function Projects() {
     <>
       <Topbar />
 
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white">
+        <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
           <div>
@@ -205,6 +206,7 @@ export default function Projects() {
             totalItems={filteredProjects.length}
           />
         )}
+      </div>
       </div>
     </>
   );
