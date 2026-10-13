@@ -11,3 +11,4 @@ numpy>=1.24
 scipy>=1.10
 torch>=2.2
 laspy[lazrs]>=2.0
+python-dotenv

@@ -26,6 +26,8 @@ export default function AdminProfile() {
 
   const [form, setForm] = useState(initialForm);
   const [roleLabel, setRoleLabel] = useState("");
+  // Only the Super Admin may change their email address (also enforced by the API).
+  const [canEditEmail, setCanEditEmail] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
@@ -47,6 +49,7 @@ export default function AdminProfile() {
           res.data?.role ||
           localStorage.getItem("role") ||
           "";
+        setCanEditEmail(String(rawRole).toLowerCase() === "superadmin");
         const normalizedRole = String(rawRole).replaceAll("_", " ").trim();
         setRoleLabel(
           normalizedRole
@@ -131,12 +134,18 @@ export default function AdminProfile() {
     );
   }, [form.password, form.confirmPassword, passwordMismatch]);
 
+  const isEmailValid = useMemo(
+    () => !canEditEmail || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()),
+    [canEditEmail, form.email],
+  );
+
   const isFormValid = useMemo(
     () =>
       Boolean(form.first_name.trim()) &&
       Boolean(form.last_name.trim()) &&
+      isEmailValid &&
       isPasswordPairValid,
-    [form.first_name, form.last_name, isPasswordPairValid],
+    [form.first_name, form.last_name, isEmailValid, isPasswordPairValid],
   );
 
   const handleSubmit = async () => {
@@ -147,6 +156,9 @@ export default function AdminProfile() {
       const newErrors = {};
       if (!form.first_name.trim()) newErrors.first_name = "First name is required";
       if (!form.last_name.trim()) newErrors.last_name = "Last name is required";
+      if (!isEmailValid) {
+        newErrors.email = form.email.trim() ? "Enter a valid email address" : "Email is required";
+      }
       if (passwordMismatch) newErrors.confirmPassword = "Passwords do not match";
       setErrors(newErrors);
       return;
@@ -159,6 +171,9 @@ export default function AdminProfile() {
       formData.append("last_name", form.last_name.trim());
       formData.append("bio", form.bio.trim());
       formData.append("password", form.password || "");
+      if (canEditEmail) {
+        formData.append("email", form.email.trim());
+      }
       if (avatarFile) {
         formData.append("avatar", avatarFile);
       }
@@ -189,11 +204,13 @@ export default function AdminProfile() {
           last_name: form.last_name.trim(),
           bio: form.bio.trim(),
           avatar_url: newAvatarUrl,
+          email: res.data?.email,
         }
       }));
 
       setForm((prev) => ({
         ...prev,
+        email: res.data?.email ?? prev.email,
         password: "",
         confirmPassword: "",
         avatar_url: newAvatarUrl,
@@ -316,18 +333,32 @@ export default function AdminProfile() {
                       />
                     </div>
 
-                    {/* Email - Read Only */}
+                    {/* Email - editable by Super Admin only */}
                     <div className="space-y-2">
                       <Label htmlFor="email" className="text-xs font-semibold text-black">
-                        Email address
+                        Email address{canEditEmail ? " *" : ""}
                       </Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={form.email || ""}
-                        disabled
-                        className="text-sm border-gray-300 bg-gray-100 cursor-not-allowed"
-                      />
+                      {canEditEmail ? (
+                        <Input
+                          id="email"
+                          type="email"
+                          autoComplete="email"
+                          placeholder="you@company.com"
+                          value={form.email || ""}
+                          onChange={(e) => handleChange("email", e.target.value)}
+                          className={`text-sm border-gray-300 ${errors.email ? "border-red-700" : ""}`}
+                        />
+                      ) : (
+                        <Input
+                          id="email"
+                          type="email"
+                          value={form.email || ""}
+                          disabled
+                          title="Only the Super Admin can change the email address"
+                          className="text-sm border-gray-300 bg-gray-100 cursor-not-allowed"
+                        />
+                      )}
+                      {errors.email && <p className="text-xs text-red-700">{errors.email}</p>}
                     </div>
 
                     {/* First & Last Name */}

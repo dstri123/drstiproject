@@ -10,6 +10,7 @@ const PUBLIC_ENDPOINTS = [
   "auth/login/",
   "check-admin/",
   "create-admin/",
+  "auth/password-reset/",
 ];
 
 API.interceptors.request.use((config) => {
