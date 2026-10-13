@@ -15,6 +15,9 @@ from .views import (
     CheckEmailView,
     OrganizationAdminsView,
     AdminDetailView,
+    PasswordResetRequestView,
+    PasswordResetVerifyView,
+    PasswordResetConfirmView,
 )
 
 urlpatterns = [
@@ -37,4 +40,9 @@ urlpatterns = [
     path('create-user/', CreateUserView.as_view()),
     path("profile/", ProfileView.as_view()),
     path("profile/update/", ProfileUpdateView.as_view()),
+
+    # PASSWORD RESET (superadmin / admin only, via emailed 6-digit code)
+    path("password-reset/request/", PasswordResetRequestView.as_view()),
+    path("password-reset/verify/", PasswordResetVerifyView.as_view()),
+    path("password-reset/confirm/", PasswordResetConfirmView.as_view()),
 ]

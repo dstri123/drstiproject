@@ -95,7 +95,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex bg-white overflow-hidden">
+    <div className="min-h-screen flex flex-row-reverse bg-white overflow-hidden">
       {/* Left Side - Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
