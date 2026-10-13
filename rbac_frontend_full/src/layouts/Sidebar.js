@@ -120,6 +120,7 @@ export default function Sidebar({ isOpen, onClose }) {
         last_name: event.detail?.last_name || prev.last_name,
         bio: event.detail?.bio || prev.bio,
         avatar_url: event.detail?.avatar_url || prev.avatar_url,
+        email: event.detail?.email || prev.email,
       }));
     };
 

@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 
 // Auth
 import Login from "./pages/auth/Login";
+import ForgotPassword from "./pages/auth/ForgotPassword";
 
 // Super Admin
 import CreateAdmin from "./pages/admin/CreateAdmin";
@@ -62,6 +63,7 @@ export default function App() {
           {/* 🔓 Public Routes (NO layout) */}
           <Route path="/" element={<Login />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           {/* 🔐 Layout Wrapper */}
           <Route element={<DashboardLayout />}>

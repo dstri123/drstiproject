@@ -3,6 +3,16 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load local secrets (e.g. SMTP credentials) from rbac_backend_full/.env if present.
+try:
+    from dotenv import load_dotenv
+    # override=True: runserver's autoreloader starts each worker with the
+    # parent's os.environ, so without it a value captured at first start
+    # (e.g. an empty EMAIL_HOST_PASSWORD) would shadow later .env edits.
+    load_dotenv(BASE_DIR / ".env", override=True)
+except ImportError:
+    pass
+
 SECRET_KEY = 'test'
 DEBUG = True
 ALLOWED_HOSTS = []
@@ -125,3 +135,23 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+# Email — used for password reset codes. Put SMTP credentials in
+# rbac_backend_full/.env (see .env.example). Without EMAIL_HOST_USER and
+# EMAIL_HOST_PASSWORD, emails
+# are only printed in the runserver console.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "").replace(" ", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_TIMEOUT = 15
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend"
+    if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD
+    else "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", f"Drsti <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "Drsti <no-reply@drsti.local>"
+)
