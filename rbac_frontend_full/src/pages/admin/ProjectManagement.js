@@ -219,7 +219,7 @@ export default function ProjectManagement() {
   });
 
   return (
-    <div className="p-6 w-full space-y-6">
+    <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white w-full space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold tracking-tight">
           Project Management
