@@ -7,6 +7,7 @@ import API from "../../api/axios";
 import Topbar from "../../layouts/Topbar";
 import { useToast } from "../../components/ToastContainer";
 import Pagination from "../../components/Pagination";
+import ProjectManagementMenu from "../../components/ProjectManagementMenu";
 
 export default function Projects() {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function Projects() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [openMgmtId, setOpenMgmtId] = useState(null);
   const itemsPerPage = 10;
 
   const fetchProjects = async () => {
@@ -183,6 +185,16 @@ export default function Projects() {
                         3D Viewer
                       </Button>
                     </div>
+
+                    <ProjectManagementMenu
+                      project={project}
+                      open={openMgmtId === project.id}
+                      onToggle={() =>
+                        setOpenMgmtId((id) =>
+                          id === project.id ? null : project.id,
+                        )
+                      }
+                    />
                   </div>
                 </div>
               ))}

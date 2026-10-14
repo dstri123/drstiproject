@@ -286,15 +286,23 @@ function parseJSON(text) {
   });
   const activities = recordsToActivities(records);
 
-  // Keep only per-activity element counts from element_mapping — the full
-  // list (thousands of GlobalIds) is too large to cache in the browser.
-  const mappedCounts = {};
+  // element_mapping rows link an activity to one BIM element. Keep the
+  // GlobalIds per activity (saved with the schedule on the server) so the
+  // dashboard can match activities to scanned elements exactly.
+  const GLOBAL_ID_KEYS = ["globalid", "ifcglobalid", "guid", "ifcguid", "elementglobalid"];
+  const elementMapping = {};
   (data.element_mapping || []).forEach((m) => {
     const id = m["Activity ID"];
-    if (id) mappedCounts[id] = (mappedCounts[id] || 0) + 1;
+    if (!id) return;
+    const gidKey = Object.keys(m).find((k) => GLOBAL_ID_KEYS.includes(normHeader(k)));
+    (elementMapping[id] = elementMapping[id] || []).push(gidKey ? String(m[gidKey]) : null);
   });
   activities.forEach((a) => {
-    if (mappedCounts[a.id] != null) a.mappedElements = mappedCounts[a.id];
+    if (elementMapping[a.id]) a.mappedElements = elementMapping[a.id].length;
+  });
+  Object.keys(elementMapping).forEach((id) => {
+    elementMapping[id] = elementMapping[id].filter(Boolean);
+    if (!elementMapping[id].length) delete elementMapping[id];
   });
   return {
     activities,
@@ -302,6 +310,7 @@ function parseJSON(text) {
       sourceIfc: data.source_ifc || null,
       schema: data.schema || null,
       notes: data.notes || [],
+      ...(Object.keys(elementMapping).length ? { element_mapping: elementMapping } : {}),
     },
   };
 }
