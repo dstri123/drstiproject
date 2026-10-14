@@ -196,3 +196,21 @@ class GaussianFile(models.Model):
 
     def __str__(self):
         return f"{self.project.project_name} - {self.kind} - {self.date}"
+
+
+class ProjectSchedule(models.Model):
+    """The project's construction schedule shown on the Project Dashboard.
+
+    The browser parses the uploaded Excel/CSV/JSON file; `activities` holds
+    the parsed rows (id, level, ifcTypes, start, finish, ...) so every user
+    sees the same schedule. One schedule per project — uploading replaces it.
+    """
+    project = models.OneToOneField(Project, on_delete=models.CASCADE, related_name="schedule")
+    file_name = models.CharField(max_length=255, blank=True)
+    activities = models.JSONField(default=list)
+    meta = models.JSONField(default=dict, blank=True)
+    uploaded_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    uploaded_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.project.project_name} schedule ({self.file_name})"

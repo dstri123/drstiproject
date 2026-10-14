@@ -8,8 +8,8 @@ from accounts.permissions import RolePermission
 from accounts.models import User
 
 from .models import Project, ProjectUser
-from .models import CameraFile, MatrixFile, EnvironmentalData, GaussianFile
-from .serializers import CameraFileSerializer, MatrixFileSerializer, EnvironmentalDataSerializer, GaussianFileSerializer
+from .models import CameraFile, MatrixFile, EnvironmentalData, GaussianFile, ProjectSchedule
+from .serializers import CameraFileSerializer, MatrixFileSerializer, EnvironmentalDataSerializer, GaussianFileSerializer, ProjectScheduleSerializer
 
 
 
@@ -1004,4 +1004,56 @@ class GaussianFileDeleteView(APIView):
         if obj.file:
             obj.file.delete(save=False)
         obj.delete()
+        return Response({"message": "Deleted"})
+
+
+class ProjectScheduleView(APIView):
+    """GET: the project's schedule (null when none uploaded).
+    PUT: create or replace it with {file_name, activities, meta}.
+    DELETE: remove it."""
+    parser_classes = [JSONParser]
+
+    def get(self, request, project_id):
+        schedule = ProjectSchedule.objects.filter(project_id=project_id).first()
+        return Response(ProjectScheduleSerializer(schedule).data if schedule else None)
+
+    def put(self, request, project_id):
+        project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+
+        existing = ProjectSchedule.objects.filter(project=project).first()
+        serializer = ProjectScheduleSerializer(existing, data=request.data)
+        if serializer.is_valid():
+            # Keep the user's schedule-level -> IFC-storey mapping when the
+            # schedule file is replaced.
+            meta = serializer.validated_data.get("meta") or {}
+            old_map = (existing.meta or {}).get("level_map") if existing else None
+            if old_map and "level_map" not in meta:
+                serializer.validated_data["meta"] = {**meta, "level_map": old_map}
+            serializer.save(project=project, uploaded_by=request.user)
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
+    def patch(self, request, project_id):
+        """Update only the schedule-level -> IFC-storey mapping:
+        {level_map: {"Basement 1": "B1F", ...}}."""
+        project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+        schedule = get_object_or_404(ProjectSchedule, project=project)
+        level_map = request.data.get("level_map")
+        if not isinstance(level_map, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in level_map.items()
+        ):
+            return Response({"level_map": "Must be an object of {schedule level: IFC level}."}, status=400)
+        schedule.meta = {**(schedule.meta or {}), "level_map": {k: v for k, v in level_map.items() if v}}
+        schedule.save(update_fields=["meta"])
+        return Response(ProjectScheduleSerializer(schedule).data)
+
+    def delete(self, request, project_id):
+        project = get_object_or_404(Project, id=project_id)
+        if not user_can_upload_to_project(request.user, project):
+            return Response({"error": "You are not assigned to this project"}, status=403)
+        ProjectSchedule.objects.filter(project=project).delete()
         return Response({"message": "Deleted"})

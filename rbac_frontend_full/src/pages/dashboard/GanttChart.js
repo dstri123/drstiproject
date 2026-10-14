@@ -529,7 +529,17 @@ const GanttChart = forwardRef(function GanttChart(
           {tip.a.predecessors.length > 0 && (
             <div>Predecessor: {tip.a.predecessors.join(", ")} ({tip.a.dependency || "FS"})</div>
           )}
-          <div>Status: {tip.a.status} · Planned {tip.a.plannedPct}% by today</div>
+          <div>
+            Status: {tip.a.status}
+            {tip.a.actual?.matched > 0 ? " (from scan)" : ""} · Planned {tip.a.plannedPct}% by today
+          </div>
+          {tip.a.actual?.matched > 0 && (
+            <div>
+              Actual {Math.round(tip.a.actual.actual_pct)}% ({tip.a.actual.completed}/{tip.a.actual.matched} built,
+              scan {tip.a.actual.scan_date}) · {tip.a.progress?.label}
+              {tip.a.actual.actual_start ? ` · started ${tip.a.actual.actual_start}` : ""}
+            </div>
+          )}
         </div>
       )}
     </div>
