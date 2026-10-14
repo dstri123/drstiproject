@@ -1032,6 +1032,7 @@ class ProgressSaveView(APIView):
                 element_id=e.get("element_id", ""),
                 element_type=e.get("element_type", ""),
                 category=e.get("category", ""),
+                level=(e.get("level") or "")[:255],
                 name=e.get("name", ""),
                 bim_volume=e.get("bim_volume", 0.0),
                 bim_points=e.get("bim_points", 0),
@@ -1108,6 +1109,7 @@ class ProgressPairAssessmentView(APIView):
             "element_id": e.element_id,
             "element_type": e.element_type,
             "category": e.category,
+            "level": e.level,
             "name": e.name,
             "bim_volume": e.bim_volume,
             "bim_points": e.bim_points,
@@ -1356,3 +1358,52 @@ class ProgressTimelineView(APIView):
 
         entries.sort(key=lambda d: (d["pointcloud_date"] is None, d["pointcloud_date"]))
         return Response({"dates": entries})
+
+
+class ScheduleProgressView(APIView):
+    """
+    GET /api/v1/processing/progress/schedule-status/<project_id>/
+    Matches the project's schedule activities to BIM elements and returns,
+    per activity, the measured progress across all saved assessments
+    (actual %, actual start/finish, not-yet-built elements). Uses the latest
+    assessment per scan (point cloud) date.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, project_id):
+        from projects.models import ProjectSchedule
+        from .models import ProgressAssessment, ProgressElement
+        from .schedule_progress import compute
+
+        schedule = ProjectSchedule.objects.filter(project_id=project_id).first()
+        assessments = list(
+            ProgressAssessment.objects.filter(project_id=project_id)
+            .order_by("pointcloud_date", "created_at")
+        )
+        # Latest assessment per scan date (re-runs replace earlier ones).
+        by_date = {}
+        for a in assessments:
+            key = (a.pointcloud_date or a.created_at.date()).isoformat()
+            by_date[key] = a
+        scan_dates = sorted(by_date)
+
+        fields = ("element_id", "element_type", "level", "name", "category", "status", "completion")
+        scans = []
+        for d in scan_dates:
+            rows = list(ProgressElement.objects.filter(assessment=by_date[d]).values(*fields))
+            scans.append((d, rows))
+
+        latest_rows = scans[-1][1] if scans else []
+        ifc_levels = sorted({r["level"] for r in latest_rows if r["level"]})
+        meta = schedule.meta if schedule else {}
+        activities = compute(schedule.activities, meta, scans) if schedule else {}
+
+        return Response({
+            "has_schedule": schedule is not None,
+            "scan_dates": scan_dates,
+            "latest_scan_date": scan_dates[-1] if scan_dates else None,
+            "latest_has_levels": bool(ifc_levels),
+            "ifc_levels": ifc_levels,
+            "level_map": (meta or {}).get("level_map") or {},
+            "activities": activities,
+        })

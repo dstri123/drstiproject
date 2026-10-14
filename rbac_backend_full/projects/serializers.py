@@ -4,7 +4,7 @@ from rest_framework import serializers
 from .models import Project, ProjectUser
 from .models import BIMData, PointCloudData, ProjectImage
 from .models import CameraFile, MatrixFile, EnvironmentalData
-from .models import GaussianFile, GAUSSIAN_FILE_EXTENSIONS
+from .models import GaussianFile, GAUSSIAN_FILE_EXTENSIONS, ProjectSchedule
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -101,3 +101,18 @@ class GaussianFileSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {'file': f"{kind} must be a {' / '.join(allowed)} file."})
         return attrs
+
+
+class ProjectScheduleSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.CharField(source='uploaded_by.username', read_only=True, default=None)
+
+    class Meta:
+        model = ProjectSchedule
+        fields = ['id', 'project', 'file_name', 'activities', 'meta',
+                  'uploaded_by', 'uploaded_by_name', 'uploaded_at']
+        read_only_fields = ['project', 'uploaded_by', 'uploaded_at']
+
+    def validate_activities(self, value):
+        if not isinstance(value, list) or not value or not all(isinstance(a, dict) for a in value):
+            raise serializers.ValidationError("activities must be a non-empty list of objects.")
+        return value

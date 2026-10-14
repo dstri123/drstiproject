@@ -19,6 +19,7 @@ from .views import (
     AlignmentPairListView,
     OverlapSnapshotSaveView,
     GaussianSplatTrainingView,
+    ScheduleProgressView,
 
 )
 
@@ -61,6 +62,8 @@ urlpatterns = [
          name='progress-history'),
     path('progress/pair/<int:pair_id>/latest/', ProgressPairAssessmentView.as_view(),
          name='progress-pair-latest'),
+    path('progress/schedule-status/<int:project_id>/', ScheduleProgressView.as_view(),
+         name='progress-schedule-status'),
     path('progress/timeline/<int:project_id>/', ProgressTimelineView.as_view(),
          name='progress-timeline'),
 

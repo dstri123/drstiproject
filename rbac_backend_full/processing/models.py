@@ -290,6 +290,7 @@ class ProgressElement(models.Model):
     element_id = models.CharField(max_length=120)   # IFC GlobalId
     element_type = models.CharField(max_length=80)  # e.g. IFCDOOR
     category = models.CharField(max_length=40, blank=True)
+    level = models.CharField(max_length=255, blank=True)  # IfcBuildingStorey name
     name = models.CharField(max_length=255, blank=True)
     bim_volume = models.FloatField(default=0.0)       # m^3
     bim_points = models.IntegerField(default=0)       # max possible PC points (from volume)

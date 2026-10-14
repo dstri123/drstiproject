@@ -346,6 +346,21 @@ def _triangle_area_sum(verts, faces):
 _ELEMENT_CACHE = {}
 
 
+def _storey_of(product, element_util):
+    """(name, elevation) of the IfcBuildingStorey an element sits on, or
+    ("", None). Follows spatial containment (element -> space/storey) and
+    aggregation (part of an assembly/stair -> its parent), climbing until a
+    storey is reached."""
+    node = product
+    for _ in range(12):  # guard against malformed cyclic hierarchies
+        if node is None:
+            break
+        if node.is_a("IfcBuildingStorey"):
+            return (getattr(node, "Name", "") or "", getattr(node, "Elevation", None))
+        node = element_util.get_container(node) or element_util.get_aggregate(node)
+    return ("", None)
+
+
 def extract_elements(ifc_path):
     """Return list of dicts: global_id, ifc_type, name, category, volume, verts,
     faces — for EVERY IFC element that has renderable geometry (no type
@@ -353,6 +368,7 @@ def extract_elements(ifc_path):
     import multiprocessing
     import ifcopenshell
     import ifcopenshell.geom as geom
+    import ifcopenshell.util.element as element_util
 
     try:
         key = (ifc_path, os.path.getmtime(ifc_path))
@@ -383,6 +399,10 @@ def extract_elements(ifc_path):
             faces = np.array(g.faces, dtype=np.int64).reshape(-1, 3)
             volume = _element_volume(verts, faces)
             area = _triangle_area_sum(verts, faces)
+            try:
+                level, level_elevation = _storey_of(product, element_util)
+            except Exception:  # floor is optional — never drop the element
+                level, level_elevation = "", None
             out.append({
                 "global_id": getattr(product, "GlobalId", "") or str(shape.id),
                 # STEP express ID (the IFC file's own line-numbering) — stable
@@ -394,6 +414,10 @@ def extract_elements(ifc_path):
                 "ifc_type": ifc_type,
                 "name": getattr(product, "Name", "") or "",
                 "category": CATEGORY_MAP.get(ifc_type, "Other"),
+                # Storey (floor) the element sits on — lets the Project
+                # Dashboard match elements to per-level schedule activities.
+                "level": level,
+                "level_elevation": level_elevation,
                 "volume": volume,
                 "area": area,
                 "verts": verts,
@@ -404,7 +428,7 @@ def extract_elements(ifc_path):
         if not it.next():
             break
 
-    if key is not None:
+    if key is not None and out:  # never cache a failed (empty) extraction
         _ELEMENT_CACHE[key] = out
     return out
 
@@ -741,6 +765,8 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
             "express_id": el["express_id"],
             "element_type": el["ifc_type"],
             "category": el["category"],
+            "level": el.get("level", ""),
+            "level_elevation": el.get("level_elevation"),
             "name": el["name"],
             "bim_volume": round(volume, 4),
             "bim_points": points_max,
