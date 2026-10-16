@@ -567,7 +567,7 @@ class PasswordResetRequestView(APIView):
 
         try:
             send_mail(
-                "Your Drsti password reset code",
+                "Your C Twin password reset code",
                 f"Your password reset code is {code}. It expires in {RESET_CODE_TTL // 60} minutes.\n\n"
                 "If you didn't request this, you can ignore this email.",
                 settings.DEFAULT_FROM_EMAIL,
