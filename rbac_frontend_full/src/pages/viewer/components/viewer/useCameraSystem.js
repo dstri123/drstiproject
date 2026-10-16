@@ -4,6 +4,9 @@ import * as THREE from "three";
 
 const GLOBAL_IMAGE_MAP = {};
 
+// Idle (unselected) colour for camera markers.
+const CAMERA_IDLE_COLOR = 0x9ca3af;
+
 function lookupImage(name) {
   if (!name) return null;
   const noExt = name.replace(/\.[^/.]+$/, "");
@@ -502,7 +505,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
             ? 0x8b5cf6
             : 0xf97316;
         const mat = new THREE.MeshBasicMaterial({
-          color: 0x000000,
+          color: CAMERA_IDLE_COLOR,
           wireframe: true,
           transparent: true,
           opacity: 0.85,
@@ -552,8 +555,8 @@ export default function useCameraSystem(sceneData, modelData, props) {
         if (!marker) return;
 
         const distance = mainCam.position.distanceTo(marker.position);
-        let scale = distance * 0.06;
-        scale = Math.max(0.1, Math.min(scale, 5));
+        let scale = distance * 0.03;
+        scale = Math.max(0.05, Math.min(scale, 2.5));
         marker.scale.setScalar(scale);
       });
       if (pathDotsRef.current) {
@@ -960,7 +963,22 @@ export default function useCameraSystem(sceneData, modelData, props) {
         cam.updateProjectionMatrix();
         const loop = () => {
           previewRafRef.current = requestAnimationFrame(loop);
+          // Hide camera markers/helpers/path so the preview shows only the
+          // scene (the selected marker would otherwise be drawn from inside).
+          const overlays = [
+            ...cameraMarkersRef.current,
+            ...cameraHelpersRef.current,
+            pathLineRef.current,
+            pathDotsRef.current,
+          ].filter(Boolean);
+          const prevVisible = overlays.map((o) => o.visible);
+          overlays.forEach((o) => {
+            o.visible = false;
+          });
           pr.render(sceneRef.current, cam);
+          overlays.forEach((o, i) => {
+            o.visible = prevVisible[i];
+          });
         };
         loop();
       });
@@ -1012,7 +1030,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     const marker = new THREE.Mesh(
       geo,
       new THREE.MeshBasicMaterial({
-        color: 0x000000,
+        color: CAMERA_IDLE_COLOR,
         wireframe: true,
         transparent: true,
         opacity: 0.85,
@@ -1076,7 +1094,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     const marker = new THREE.Mesh(
       geo,
       new THREE.MeshBasicMaterial({
-        color: 0x000000,
+        color: CAMERA_IDLE_COLOR,
         wireframe: true,
         transparent: true,
         opacity: 0.85,
@@ -1222,7 +1240,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     [bump],
   );
 
-  // ── NEW: revert dots back to the default black idle cones ─────────────────
+  // ── NEW: revert dots back to the default gray idle cones ─────────────────
   const resetCameraColors = useCallback(() => {
     cameraMarkersRef.current.forEach((marker, idx) => {
       const cam = camerasRef.current[idx];
@@ -1237,7 +1255,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
         : cam.userData.hasImage
           ? 0x8b5cf6
           : 0xf97316;
-      marker.material.color.setHex(0x000000);
+      marker.material.color.setHex(CAMERA_IDLE_COLOR);
       marker.userData.baseColor = semanticColor;
       marker.userData.hasDataColor = false;
     });
@@ -1310,12 +1328,12 @@ export default function useCameraSystem(sceneData, modelData, props) {
       const cam = camerasRef.current[idx];
       if (!cam) return;
 
-      // Restore previous selection to black
+      // Restore previous selection to idle gray
       if (
         selectedMarkerRef.current &&
         selectedMarkerRef.current !== hits[0].object
       ) {
-        selectedMarkerRef.current.material.color.setHex(0x000000);
+        selectedMarkerRef.current.material.color.setHex(CAMERA_IDLE_COLOR);
       }
       // Highlight new selection with its meaningful base color
       hits[0].object.material.color.setHex(
