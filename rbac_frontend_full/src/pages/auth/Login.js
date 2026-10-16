@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useToast } from "../../components/ToastContainer";
+import AuthHeroPanel from "../../components/AuthHeroPanel";
 
 export default function Login() {
   const [form, setForm] = useState({});
@@ -101,11 +102,11 @@ export default function Login() {
       <div className="w-full max-w-md">
         {/* Logo/Brand */}
         <div className="text-center mb-8">
-          <img src="/distri-logo.png" alt="Distri Logo" className="h-24 mx-auto mb-4 object-contain" />
+          <img src="/distri-logo.png" alt="C Twin Logo" className="h-24 mx-auto mb-4 object-contain" />
         </div>
 
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-black">Drsti</h1>
+          <h1 className="text-2xl font-bold text-black">C Twin</h1>
           <p className="text-sm text-gray-600 mt-1">Next Generation Progress Analytics</p>
         </div>
 
@@ -219,14 +220,7 @@ export default function Login() {
       </div>
 
       {/* Right Side - BIM Image HD (Hidden on Mobile) */}
-      <div className="hidden lg:flex w-1/2 bg-white items-center justify-center relative overflow-auto p-6">
-        <img
-          src="/bim-layers.png"
-          alt="BIM Layers - Distri"
-          className="w-4/5 h-auto object-contain"
-          loading="lazy"
-        />
-      </div>
+      <AuthHeroPanel />
     </div>
   );
 }

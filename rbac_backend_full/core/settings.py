@@ -153,5 +153,5 @@ EMAIL_BACKEND = os.environ.get(
     else "django.core.mail.backends.console.EmailBackend",
 )
 DEFAULT_FROM_EMAIL = os.environ.get(
-    "DEFAULT_FROM_EMAIL", f"Drsti <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "Drsti <no-reply@drsti.local>"
+    "DEFAULT_FROM_EMAIL", f"C Twin <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "C Twin <no-reply@drsti.local>"
 )

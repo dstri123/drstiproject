@@ -52,9 +52,9 @@ export default function Topbar({ onMenuClick }) {
           <Menu className="w-5 h-5 text-black" />
         </button>
 
-        <img src="/distri-logo.png" alt="Drsti Logo" className="h-8 w-auto" />
+        <img src="/distri-logo.png" alt="C Twin Logo" className="h-8 w-auto" />
         <h1 className="font-bold text-lg tracking-wide text-black">
-          Drsti
+          C Twin
         </h1>
       </div>
 
