@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../../api/axios";
+import AuthHeroPanel from "../../components/AuthHeroPanel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -595,8 +596,8 @@ export default function ForgotPassword() {
         <div className="w-full max-w-sm my-auto">
           {/* Brand — centred above the form, as on the Sign In page */}
           <div className="text-center mb-8">
-            <img src="/distri-logo.png" alt="Drsti Logo" className="h-14 mx-auto mb-2 object-contain" />
-            <h1 className="text-xl font-bold text-black leading-tight">Drsti</h1>
+            <img src="/distri-logo.png" alt="C Twin Logo" className="h-14 mx-auto mb-2 object-contain" />
+            <h1 className="text-xl font-bold text-black leading-tight">C Twin</h1>
             <p className="text-xs text-gray-600 mt-0.5">Next Generation Progress Analytics</p>
           </div>
 
@@ -651,14 +652,7 @@ export default function ForgotPassword() {
       </div>
 
       {/* Left Side - BIM image (same as Sign In page; hidden on mobile) */}
-      <div className="hidden lg:flex w-1/2 h-full bg-white items-center justify-center overflow-hidden p-6">
-        <img
-          src="/bim-layers.png"
-          alt="BIM Layers - Drsti"
-          className="max-w-[80%] max-h-full object-contain"
-          loading="lazy"
-        />
-      </div>
+      <AuthHeroPanel />
     </div>
   );
 }

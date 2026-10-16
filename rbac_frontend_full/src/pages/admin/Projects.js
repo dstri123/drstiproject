@@ -33,7 +33,7 @@ export default function Projects() {
 
   useEffect(() => {
     fetchProjects();
-    document.title = "Projects - Drsti";
+    document.title = "Projects - C Twin";
   }, []);
 
   const handleDelete = async (id) => {
