@@ -994,18 +994,19 @@ function CategoryDropdown({
   const [open, setOpen] = useState(false);
   const highlightRef = useRef(null);
 
-  // Clicking an element in the 3D view auto-expands its category here and
-  // scrolls the matching row into view, so the sidebar always shows exactly
-  // which element (by name) within the category was just selected.
+  const headerRef = useRef(null);
+  const isActive = !!highlightName;
+
+  // Clicking an element in the 3D view only highlights its category header
+  // (and scrolls the header into view) — the list stays collapsed until the
+  // user opens it, so the panel doesn't jump around on every pick.
   useEffect(() => {
-    if (!highlightName) return;
-    setOpen(true);
+    if (highlightName && headerRef.current) {
+      headerRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
   }, [highlightName]);
 
-  // Runs again once `open` flips true: when the category was collapsed at
-  // click time, the list (and this ref) doesn't exist yet during the same
-  // effect pass that requests the expand above — it only mounts on the
-  // render triggered by that setOpen(true), so scrolling has to wait for it.
+  // When the user opens the active category, bring the selected row into view.
   useEffect(() => {
     if (highlightName && open && highlightRef.current) {
       highlightRef.current.scrollIntoView({
@@ -1018,28 +1019,50 @@ function CategoryDropdown({
   return (
     <div style={{ borderBottom: "1px solid #f1f5f9" }}>
       <button
+        ref={headerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
+        title={isActive ? `Selected: ${highlightName}` : undefined}
         style={{
           width: "100%",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "7px 9px",
-          background: "#fff",
+          background: isActive ? "#eff6ff" : "#fff",
           border: "none",
+          boxShadow: isActive ? "inset 3px 0 0 #2563eb" : "none",
           cursor: "pointer",
           fontSize: 11,
-          fontWeight: 600,
-          color: "#374151",
+          fontWeight: isActive ? 700 : 600,
+          color: isActive ? "#1d4ed8" : "#374151",
+          transition: "background 0.15s, color 0.15s",
         }}
       >
-        <span>{category}</span>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 700 }}>
+          {category}
+          {isActive && (
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#2563eb",
+              }}
+            />
+          )}
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span
+            style={{
+              fontSize: 10,
+              color: isActive ? "#3b82f6" : "#9ca3af",
+              fontWeight: 700,
+            }}
+          >
             {names.length}
           </span>
-          <span style={{ fontSize: 9, color: "#9ca3af" }}>
+          <span style={{ fontSize: 9, color: isActive ? "#3b82f6" : "#9ca3af" }}>
             {open ? "▾" : "▸"}
           </span>
         </span>
