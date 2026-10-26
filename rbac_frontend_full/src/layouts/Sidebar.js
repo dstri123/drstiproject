@@ -9,6 +9,7 @@ import {
   LogOut,
   X,
   Wrench,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -91,7 +92,18 @@ export default function Sidebar({ isOpen, onClose }) {
     ],
   };
 
-  const currentMenu = menuItems[role] || [];
+  // Activity Log is for superadmins (everyone's activity) and admins (their
+  // sub-role users' activity) only — the server enforces the same rule.
+  const activityItem = {
+    label: "Activity Log",
+    path: "/activity",
+    icon: <History className="w-5 h-5" />,
+  };
+
+  const currentMenu = [
+    ...(menuItems[role] || []),
+    ...(role === "superadmin" || role === "admin" ? [activityItem] : []),
+  ];
 
   useEffect(() => {
     const fetchProfile = async () => {

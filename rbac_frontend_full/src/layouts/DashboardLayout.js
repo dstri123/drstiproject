@@ -24,6 +24,7 @@ export default function DashboardLayout() {
     "/engineer",
     "/data",
     "/tools",
+    "/activity",
   ];
 
   // Keep the sidebar visible for listed base routes and any nested paths
