@@ -32,5 +32,15 @@ class User(AbstractUser):
         blank=True
     )
 
+    # The admin (or superadmin) who created this account. Used to group
+    # sub-role users under their admin, e.g. in the activity log.
+    created_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_users",
+    )
+
     def __str__(self):
         return f"{self.username} ({self.role})"

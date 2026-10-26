@@ -13,6 +13,7 @@ from django.contrib.auth import get_user_model
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import Organization
+from activity.recorder import record
 
 
 # 👑 SUPERADMIN SIGNUP
@@ -129,6 +130,7 @@ class CreateAdminView(APIView):
             )
             user.role = "admin"
             user.organization = org
+            user.created_by = request.user if request.user.is_authenticated else None
 
             user.save()
 
@@ -165,6 +167,7 @@ class CreateMemberView(APIView):
             password=password
         )
         user.role = "member"   # 🔥 assign role
+        user.created_by = request.user if request.user.is_authenticated else None
         user.save()
 
         return Response({"msg": "Member created"})
@@ -181,6 +184,7 @@ class CreateUserView(APIView):
             password=password
         )
         user.role = "user"   # 🔥 assign role
+        user.created_by = request.user if request.user.is_authenticated else None
         user.save()
 
         return Response({"msg": "User created"})
@@ -651,4 +655,11 @@ class PasswordResetConfirmView(APIView):
         user.set_password(password)
         user.save(update_fields=["password"])
         cache.delete(f"pwreset:session:{token}")
+        # The activity middleware can't tell whose reset this was (the token
+        # is gone by then), so it skips this endpoint and we log it here.
+        record(
+            action="password_reset", description="Reset password via emailed code",
+            request=request, user=user, target_type="password",
+            target_name=user.username, status_code=200,
+        )
         return Response({"detail": "Password changed."})
