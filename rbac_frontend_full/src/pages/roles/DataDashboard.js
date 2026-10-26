@@ -6,7 +6,7 @@ import {
   Users,
   Image as ImageIcon,
   Cuboid,
-  Folder,
+  Folder,
 } from "lucide-react";
 import API from "../../api/axios";
 import { useNavigate } from "react-router-dom";
@@ -84,21 +84,25 @@ export default function DataDashboard() {
       <Topbar />
       {/* Cancel DashboardLayout <main> padding (pt-20 under the h-16 Topbar,
           px-4/sm:px-6, pb-6) so the white page sits flush against the sidebar
-          and top bar with no grey gutter. */}
-      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-8 min-h-[calc(100vh-4rem)] bg-white">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-black mb-1">Projects</h1>
-            <p className="text-sm text-gray-600">
+          and top bar with no grey gutter. The page is pinned to exactly one
+          viewport (dvh so mobile browser chrome is accounted for) so the
+          window never scrolls; only the card grid scrolls if it must. */}
+      <div className="-mt-4 -mx-4 sm:-mx-6 -mb-6 px-4 sm:px-6 py-4 sm:py-5 h-[calc(100dvh-4rem)] overflow-hidden bg-white">
+        <div className="max-w-7xl mx-auto h-full flex flex-col gap-3 sm:gap-4">
+          <div className="shrink-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-black">
+              Projects
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-600">
               Upload data and access project viewers
             </p>
           </div>
 
           {/* Filter Section */}
-          <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-6">
-            <div className="flex flex-col sm:flex-row gap-4 items-end">
-              <div className="flex-1">
-                <label className="text-sm font-semibold text-black block mb-2">
+          <div className="shrink-0 bg-gray-50 rounded-lg border border-gray-200 p-3">
+            <div className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_auto] gap-2 sm:gap-4 items-end">
+              <div className="min-w-0">
+                <label className="text-xs sm:text-sm font-semibold text-black block mb-1">
                   Start Date From
                 </label>
                 <input
@@ -109,8 +113,8 @@ export default function DataDashboard() {
                 />
               </div>
 
-              <div className="flex-1">
-                <label className="text-sm font-semibold text-black block mb-2">
+              <div className="min-w-0">
+                <label className="text-xs sm:text-sm font-semibold text-black block mb-1">
                   End Date To
                 </label>
                 <input
@@ -124,31 +128,35 @@ export default function DataDashboard() {
               <Button
                 onClick={handleClearFilters}
                 variant="outline"
-                className="border-gray-300 text-black hover:bg-gray-100"
+                className="col-span-2 sm:col-span-1 h-9 border-gray-300 text-black hover:bg-gray-100"
               >
                 Clear Filters
               </Button>
             </div>
             {(filterStartDate || filterEndDate) && (
-              <p className="text-xs text-gray-600 mt-3">
+              <p className="text-xs text-gray-600 mt-2">
                 Showing {projects.length} of {allProjects.length} project(s)
               </p>
             )}
           </div>
 
           {loading ? (
-            <div className="flex justify-center items-center py-12">
+            <div className="flex-1 flex justify-center items-center">
               <Loader2 className="w-8 h-8 animate-spin text-black" />
             </div>
           ) : projects.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            // Each grid row is at least the full height of the remaining space,
+            // so one row of cards fills the screen exactly; the image flexes to
+            // absorb the slack. Extra rows (or a narrow screen with one card
+            // per row) scroll inside this area, snapping card by card.
+            <div className="flex-1 min-h-0 overflow-y-auto snap-y snap-mandatory grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-[minmax(100%,auto)]">
               {projects.map((project) => (
                 <div
                   key={project.id}
-                  className="rounded-lg border border-gray-300 bg-white overflow-hidden hover:shadow-lg transition-shadow"
+                  className="snap-start flex flex-col rounded-lg border border-gray-300 bg-white overflow-hidden hover:shadow-lg transition-shadow"
                 >
                   {/* Project Image */}
-                  <div className="h-40 bg-gray-100 flex items-center justify-center overflow-hidden">
+                  <div className="flex-1 min-h-[5rem] bg-gray-100 flex items-center justify-center overflow-hidden">
                     {project.image ? (
                       <img
                         src={
@@ -170,7 +178,7 @@ export default function DataDashboard() {
                   </div>
 
                   {/* Card Content */}
-                  <div className="p-4 space-y-3">
+                  <div className="shrink-0 p-3 sm:p-4 space-y-2.5">
                     {/* Project Name & Summary */}
                     <div>
                       <h3 className="font-bold text-black text-base">
@@ -329,7 +337,7 @@ export default function DataDashboard() {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
+            <div className="flex-1 flex flex-col justify-center rounded-lg border border-gray-200 bg-white p-12 text-center">
               <Folder className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500 text-sm font-medium">
                 No projects available
