@@ -64,6 +64,7 @@ class CreateProjectUserView(APIView):
             user.role = "member"       # ✅ required field
             user.sub_role = sub_role   # ✅ correct field
             user.is_active = True  
+            user.created_by = request.user
             user.save()                # 🔥 MUST
 
             return Response({
@@ -115,6 +116,7 @@ class CreateUserAssignProjectView(APIView):
             user.role = "admin" if sub_role == "admin" else "member"
             user.sub_role = sub_role
             user.is_active = True
+            user.created_by = request.user
             user.save()
 
             return Response({

@@ -54,6 +54,8 @@ import PhotoUpload from "./pages/photos/PhotoUpload";
 // siblings of <Routes> so they survive navigation between each other.
 import ProgressTimelinePage from "./pages/analytics/ProgressTimelinePage";
 import ProjectDashboardPage from "./pages/dashboard/ProjectDashboardPage";
+import ActivityHome from "./pages/activity/ActivityHome";
+import AdminActivityDetailPage from "./pages/activity/AdminActivityDetailPage";
 
 export default function App() {
   return (
@@ -109,6 +111,10 @@ export default function App() {
 
           {/* Tools */}
           <Route path="/tools" element={<ToolsPage />} />
+
+          {/* Activity Log — superadmin & admin only (enforced server-side) */}
+          <Route path="/activity" element={<ActivityHome />} />
+          <Route path="/activity/admin/:adminId" element={<AdminActivityDetailPage />} />
 
           {/* SPIKE: MapLibre + Three.js geo map prototype */}
           <Route path="/map-spike" element={<MapGroundSpike />} />

@@ -31,6 +31,9 @@ urlpatterns = [
 
     # ⚙️ Processing
     path('api/v1/processing/', include('processing.urls')),
+
+    # 🧾 Activity Log
+    path('api/v1/activity/', include('activity.urls')),
 ]
 
 urlpatterns += static(
