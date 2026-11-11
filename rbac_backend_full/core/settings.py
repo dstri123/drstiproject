@@ -17,6 +17,10 @@ SECRET_KEY = 'test'
 DEBUG = True
 ALLOWED_HOSTS = []
 
+# Allow large point-cloud data requests for Auto Align
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -32,6 +36,8 @@ INSTALLED_APPS = [
     'accounts',
     'projects',
     'processing',
+    'activity',
+    'issues',
 ]
 
 MIDDLEWARE = [
@@ -47,6 +53,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
 
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    # Records every successful API write in the activity log.
+    'activity.middleware.ActivityLogMiddleware',
 ]
 
 DATABASES = {
@@ -54,7 +63,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'distriapp',
         'USER': 'root',
-        'PASSWORD': '2000',
+        'PASSWORD': 'Drsti@2026',
         'HOST': '127.0.0.1',
         'PORT': '3306',
     }
@@ -82,6 +91,9 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# Lets the browser read download filenames (e.g. the BCF export's .bcfzip).
+CORS_EXPOSE_HEADERS = ['Content-Disposition']
 
 AUTH_USER_MODEL = 'accounts.User'
 

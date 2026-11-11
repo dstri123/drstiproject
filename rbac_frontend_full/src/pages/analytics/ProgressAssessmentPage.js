@@ -2633,6 +2633,158 @@ function SummaryCard({ icon: Icon, label, value, color, onClick, active }) {
   );
 }
 
+// ─── Built progress per floor / trade ───────────────────────────────────────
+// Rollups come from the backend (progress.by_level / by_trade) over buildable
+// elements only. "By count" is completed / total elements; "By volume" weights
+// each element by its BIM volume, so a slab counts for more than a door.
+const BUILT_BY_LABEL = {
+  sam: "SAM photo labels",
+  plane: "planar scan surface",
+  coverage: "scan coverage",
+};
+
+function FloorTradeProgress({ levels, trades }) {
+  const [groupBy, setGroupBy] = useState(levels?.length ? "level" : "trade");
+  const [weight, setWeight] = useState("count");
+  const rows = (groupBy === "level" ? levels : trades) || [];
+  const toggle = (active) => ({
+    fontSize: 11,
+    fontWeight: 700,
+    padding: "4px 10px",
+    border: "1px solid #e5e7eb",
+    background: active ? "#4f46e5" : "#fff",
+    color: active ? "#fff" : "#475569",
+    cursor: "pointer",
+  });
+  const segment = (n, total, color) =>
+    n > 0 && (
+      <div style={{ width: `${(n / total) * 100}%`, background: color }} />
+    );
+
+  return (
+    <Section
+      title="Built Progress by Floor / Trade"
+      right={
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex" }}>
+            <button
+              onClick={() => setGroupBy("level")}
+              style={{ ...toggle(groupBy === "level"), borderRadius: "6px 0 0 6px" }}
+            >
+              Floor
+            </button>
+            <button
+              onClick={() => setGroupBy("trade")}
+              style={{ ...toggle(groupBy === "trade"), borderRadius: "0 6px 6px 0" }}
+            >
+              Trade
+            </button>
+          </div>
+          <div style={{ display: "flex" }}>
+            <button
+              onClick={() => setWeight("count")}
+              style={{ ...toggle(weight === "count"), borderRadius: "6px 0 0 6px" }}
+            >
+              By count
+            </button>
+            <button
+              onClick={() => setWeight("volume")}
+              style={{ ...toggle(weight === "volume"), borderRadius: "0 6px 6px 0" }}
+            >
+              By volume
+            </button>
+          </div>
+        </div>
+      }
+    >
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#94a3b8" }}>
+          No buildable elements to group.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rows.map((r) => {
+            const name = groupBy === "level" ? r.level : r.trade;
+            const pct = weight === "volume" ? r.volume_completion : r.completion;
+            // Only SAM detections are surfaced; coverage/plane calls stay silent.
+            const samBuilt = r.built_by?.sam || 0;
+            const auto = samBuilt ? [`${samBuilt} by ${BUILT_BY_LABEL.sam}`] : [];
+            return (
+              <div
+                key={name}
+                title={
+                  `${r.completed} built · ${r.in_progress} in progress · ${r.not_started} not started` +
+                  `
+${r.built_volume} of ${r.bim_volume} m³ built` +
+                  (auto.length ? `
+Auto-detected: ${auto.join(", ")}` : "")
+                }
+                style={{ display: "flex", alignItems: "center", gap: 10 }}
+              >
+                <span
+                  style={{
+                    width: 160,
+                    flexShrink: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#334155",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {name}
+                </span>
+                <div
+                  style={{
+                    flex: 1,
+                    height: 14,
+                    display: "flex",
+                    borderRadius: 4,
+                    overflow: "hidden",
+                    background: "#f1f5f9",
+                  }}
+                >
+                  {segment(r.completed, r.total, STATUS_META.completed.color)}
+                  {segment(r.in_progress, r.total, STATUS_META.in_progress.color)}
+                  {segment(r.not_started, r.total, STATUS_META.not_started.bg)}
+                </div>
+                <span
+                  style={{
+                    width: 56,
+                    textAlign: "right",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#0f172a",
+                  }}
+                >
+                  {pct}%
+                </span>
+                <span style={{ width: 84, fontSize: 11, color: "#64748b" }}>
+                  {r.completed} / {r.total} built
+                </span>
+              </div>
+            );
+          })}
+          <div
+            style={{
+              display: "flex",
+              gap: 14,
+              fontSize: 10,
+              color: "#64748b",
+              marginTop: 4,
+            }}
+          >
+            <Legend c={STATUS_META.completed.color} t="Built" />
+            <Legend c={STATUS_META.in_progress.color} t="In progress" />
+            <Legend c={STATUS_META.not_started.bg} t="Not started" />
+          </div>
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export default function ProgressAssessmentPage({ routeParam: routeParamProp } = {}) {
   // Accepts routeParam as a prop (from PersistentWorkspace, which keeps this
   // page mounted across navigation to the Viewer/Analytics) — falls back to
@@ -3575,6 +3727,13 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                   </Section>
                 )}
 
+                {(result.levels?.length > 0 || result.trades?.length > 0) && (
+                  <FloorTradeProgress
+                    levels={result.levels}
+                    trades={result.trades}
+                  />
+                )}
+
                 {/* Category analytics dashboard (interactive, ICED-style) */}
                 {result.categories?.length > 0 && (
                   <CategoryChartsPanel
@@ -3719,6 +3878,25 @@ export default function ProgressAssessmentPage({ routeParam: routeParamProp } = 
                                     }}
                                   >
                                     ✓ verified
+                                  </span>
+                                )}
+                                {e.built_by === "sam" && (
+                                  <span
+                                    title={`Marked built automatically from ${
+                                      BUILT_BY_LABEL.sam
+                                    }${
+                                      e.sam_built_ratio != null
+                                        ? ` — ${Math.round(e.sam_built_ratio * 100)}% of labelled points are concrete/structure`
+                                        : ""
+                                    }`}
+                                    style={{
+                                      marginLeft: 6,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      color: "#4f46e5",
+                                    }}
+                                  >
+                                    ⚡ auto · SAM
                                   </span>
                                 )}
                               </td>

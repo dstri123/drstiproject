@@ -538,6 +538,231 @@ export default function PhotoUpload() {
             </CardContent>
           </Card>
 
+          {/* Camera File / Matrix File Section */}
+          {selectedFolder && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Camera File */}
+              <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-white">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-gray-600" />
+                  <h4 className="text-sm font-semibold text-black">
+                    Camera File (.txt)
+                  </h4>
+                </div>
+
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept=".txt"
+                    onChange={(e) =>
+                      setCameraFileToUpload(e.target.files?.[0] || null)
+                    }
+                    className="block w-full text-xs text-gray-600"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={cameraDate}
+                      onChange={(e) => setCameraDate(e.target.value)}
+                      className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                    <label className="flex items-center gap-1 text-xs text-black whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={cameraIsLatest}
+                        onChange={(e) =>
+                          setCameraIsLatest(e.target.checked)
+                        }
+                      />
+                      Latest
+                    </label>
+                  </div>
+                  <Button
+                    onClick={handleUploadCameraFile}
+                    disabled={uploadingCamera}
+                    className="w-full bg-black hover:bg-gray-900 text-white text-xs py-1.5"
+                  >
+                    {uploadingCamera
+                      ? "Uploading..."
+                      : "Upload Camera File"}
+                  </Button>
+                </div>
+
+                {cameraFiles.length > 0 && (
+                  <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
+                    {latestCameraFile && (
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex-1 min-w-0">
+                          <a
+                            href={latestCameraFile.file}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-700 truncate hover:underline"
+                            title={latestCameraFile.file}
+                          >
+                            {latestCameraFile.file.split("/").pop()}
+                          </a>
+                          <p className="text-[10px] text-gray-500 mt-1">
+                            Latest uploaded file
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
+                          <span className="text-gray-500">
+                            {latestCameraFile.date}
+                          </span>
+                          <Star className="w-3 h-3 text-green-600 fill-green-600" />
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              deleteCameraFile(latestCameraFile.id)
+                            }
+                            disabled={cameraDeleteLoading}
+                            className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {cameraFiles
+                      .filter((f) => f.id !== latestCameraFile?.id)
+                      .map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <a
+                            href={f.file}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-700 truncate hover:underline"
+                            title={f.file}
+                          >
+                            {f.file.split("/").pop()}
+                          </a>
+                          <div className="flex items-center gap-1 whitespace-nowrap ml-2">
+                            <span className="text-gray-500">{f.date}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Matrix File */}
+              <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-white">
+                <div className="flex items-center gap-2">
+                  <FileJson className="w-4 h-4 text-gray-600" />
+                  <h4 className="text-sm font-semibold text-black">
+                    Matrix File (.json)
+                  </h4>
+                </div>
+
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={(e) =>
+                      setMatrixFileToUpload(e.target.files?.[0] || null)
+                    }
+                    className="block w-full text-xs text-gray-600"
+                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={matrixDate}
+                      onChange={(e) => setMatrixDate(e.target.value)}
+                      className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                    />
+                    <label className="flex items-center gap-1 text-xs text-black whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={matrixIsLatest}
+                        onChange={(e) =>
+                          setMatrixIsLatest(e.target.checked)
+                        }
+                      />
+                      Latest
+                    </label>
+                  </div>
+                  <Button
+                    onClick={handleUploadMatrixFile}
+                    disabled={uploadingMatrix}
+                    className="w-full bg-black hover:bg-gray-900 text-white text-xs py-1.5"
+                  >
+                    {uploadingMatrix
+                      ? "Uploading..."
+                      : "Upload Matrix File"}
+                  </Button>
+                </div>
+
+                {matrixFiles.length > 0 && (
+                  <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
+                    {latestMatrixFile && (
+                      <div className="flex items-center justify-between text-xs">
+                        <div className="flex-1 min-w-0">
+                          <a
+                            href={latestMatrixFile.file}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-700 truncate hover:underline"
+                            title={latestMatrixFile.file}
+                          >
+                            {latestMatrixFile.file.split("/").pop()}
+                          </a>
+                          <p className="text-[10px] text-gray-500 mt-1">
+                            Latest uploaded file
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
+                          <span className="text-gray-500">
+                            {latestMatrixFile.date}
+                          </span>
+                          <Star className="w-3 h-3 text-green-600 fill-green-600" />
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              deleteMatrixFile(latestMatrixFile.id)
+                            }
+                            disabled={matrixDeleteLoading}
+                            className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {matrixFiles
+                      .filter((f) => f.id !== latestMatrixFile?.id)
+                      .map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <a
+                            href={f.file}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-gray-700 truncate hover:underline"
+                            title={f.file}
+                          >
+                            {f.file.split("/").pop()}
+                          </a>
+                          <div className="flex items-center gap-1 whitespace-nowrap ml-2">
+                            <span className="text-gray-500">{f.date}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Folders List */}
           {folders.length > 0 && (
             <Card>
@@ -645,229 +870,6 @@ export default function PhotoUpload() {
                     </div>
                   </div>
                 )}
-
-                {/* Camera File / Matrix File Section */}
-                <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Camera File */}
-                  <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Camera className="w-4 h-4 text-gray-600" />
-                      <h4 className="text-sm font-semibold text-black">
-                        Camera File (.txt)
-                      </h4>
-                    </div>
-
-                    <div className="space-y-2">
-                      <input
-                        type="file"
-                        accept=".txt"
-                        onChange={(e) =>
-                          setCameraFileToUpload(e.target.files?.[0] || null)
-                        }
-                        className="block w-full text-xs text-gray-600"
-                      />
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={cameraDate}
-                          onChange={(e) => setCameraDate(e.target.value)}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
-                        />
-                        <label className="flex items-center gap-1 text-xs text-black whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={cameraIsLatest}
-                            onChange={(e) =>
-                              setCameraIsLatest(e.target.checked)
-                            }
-                          />
-                          Latest
-                        </label>
-                      </div>
-                      <Button
-                        onClick={handleUploadCameraFile}
-                        disabled={uploadingCamera}
-                        className="w-full bg-black hover:bg-gray-900 text-white text-xs py-1.5"
-                      >
-                        {uploadingCamera
-                          ? "Uploading..."
-                          : "Upload Camera File"}
-                      </Button>
-                    </div>
-
-                    {cameraFiles.length > 0 && (
-                      <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
-                        {latestCameraFile && (
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex-1 min-w-0">
-                              <a
-                                href={latestCameraFile.file}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-gray-700 truncate hover:underline"
-                                title={latestCameraFile.file}
-                              >
-                                {latestCameraFile.file.split("/").pop()}
-                              </a>
-                              <p className="text-[10px] text-gray-500 mt-1">
-                                Latest uploaded file
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
-                              <span className="text-gray-500">
-                                {latestCameraFile.date}
-                              </span>
-                              <Star className="w-3 h-3 text-green-600 fill-green-600" />
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() =>
-                                  deleteCameraFile(latestCameraFile.id)
-                                }
-                                disabled={cameraDeleteLoading}
-                                className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
-                              >
-                                <Trash2 className="w-3 h-3 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        {cameraFiles
-                          .filter((f) => f.id !== latestCameraFile?.id)
-                          .map((f) => (
-                            <div
-                              key={f.id}
-                              className="flex items-center justify-between text-xs"
-                            >
-                              <a
-                                href={f.file}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-gray-700 truncate hover:underline"
-                                title={f.file}
-                              >
-                                {f.file.split("/").pop()}
-                              </a>
-                              <div className="flex items-center gap-1 whitespace-nowrap ml-2">
-                                <span className="text-gray-500">{f.date}</span>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Matrix File */}
-                  <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <FileJson className="w-4 h-4 text-gray-600" />
-                      <h4 className="text-sm font-semibold text-black">
-                        Matrix File (.json)
-                      </h4>
-                    </div>
-
-                    <div className="space-y-2">
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={(e) =>
-                          setMatrixFileToUpload(e.target.files?.[0] || null)
-                        }
-                        className="block w-full text-xs text-gray-600"
-                      />
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={matrixDate}
-                          onChange={(e) => setMatrixDate(e.target.value)}
-                          className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
-                        />
-                        <label className="flex items-center gap-1 text-xs text-black whitespace-nowrap">
-                          <input
-                            type="checkbox"
-                            checked={matrixIsLatest}
-                            onChange={(e) =>
-                              setMatrixIsLatest(e.target.checked)
-                            }
-                          />
-                          Latest
-                        </label>
-                      </div>
-                      <Button
-                        onClick={handleUploadMatrixFile}
-                        disabled={uploadingMatrix}
-                        className="w-full bg-black hover:bg-gray-900 text-white text-xs py-1.5"
-                      >
-                        {uploadingMatrix
-                          ? "Uploading..."
-                          : "Upload Matrix File"}
-                      </Button>
-                    </div>
-
-                    {matrixFiles.length > 0 && (
-                      <div className="border-t border-gray-200 pt-2 space-y-2 max-h-40 overflow-y-auto">
-                        {latestMatrixFile && (
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex-1 min-w-0">
-                              <a
-                                href={latestMatrixFile.file}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-gray-700 truncate hover:underline"
-                                title={latestMatrixFile.file}
-                              >
-                                {latestMatrixFile.file.split("/").pop()}
-                              </a>
-                              <p className="text-[10px] text-gray-500 mt-1">
-                                Latest uploaded file
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 ml-2 whitespace-nowrap">
-                              <span className="text-gray-500">
-                                {latestMatrixFile.date}
-                              </span>
-                              <Star className="w-3 h-3 text-green-600 fill-green-600" />
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() =>
-                                  deleteMatrixFile(latestMatrixFile.id)
-                                }
-                                disabled={matrixDeleteLoading}
-                                className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
-                              >
-                                <Trash2 className="w-3 h-3 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        {matrixFiles
-                          .filter((f) => f.id !== latestMatrixFile?.id)
-                          .map((f) => (
-                            <div
-                              key={f.id}
-                              className="flex items-center justify-between text-xs"
-                            >
-                              <a
-                                href={f.file}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-gray-700 truncate hover:underline"
-                                title={f.file}
-                              >
-                                {f.file.split("/").pop()}
-                              </a>
-                              <div className="flex items-center gap-1 whitespace-nowrap ml-2">
-                                <span className="text-gray-500">{f.date}</span>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </CardContent>
             </Card>
           )}

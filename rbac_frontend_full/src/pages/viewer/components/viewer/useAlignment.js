@@ -32,13 +32,131 @@ function extractWorldPoints(root, maxPoints = 20000) {
   return out;
 }
 
+// Sample count points uniformly over the visible mesh surfaces of root in
+// world space (area-weighted), so large flat walls/slabs are represented
+// fairly instead of by their few vertices. Falls back to vertices when the
+// model has no triangles.
+function sampleWorldSurface(root, count = 60000) {
+  if (!root) return [];
+  root.updateMatrixWorld(true);
+  const meshes = [];
+  const collect = (child) => {
+    if (child.isMesh && child.geometry?.attributes?.position)
+      meshes.push(child);
+  };
+  root.traverseVisible(collect);
+  if (!meshes.length) root.traverse(collect);
+
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const tris = []; // per mesh: { mesh, pos, idx, cumulative areas, end }
+  let totalArea = 0;
+  for (const mesh of meshes) {
+    const pos = mesh.geometry.attributes.position;
+    const idx = mesh.geometry.index;
+    const n = idx ? idx.count / 3 : pos.count / 3;
+    if (n < 1) continue;
+    const cumulative = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const i0 = idx ? idx.getX(3 * i) : 3 * i;
+      a.fromBufferAttribute(pos, i0).applyMatrix4(mesh.matrixWorld);
+      b.fromBufferAttribute(
+        pos,
+        idx ? idx.getX(3 * i + 1) : 3 * i + 1,
+      ).applyMatrix4(mesh.matrixWorld);
+      c.fromBufferAttribute(
+        pos,
+        idx ? idx.getX(3 * i + 2) : 3 * i + 2,
+      ).applyMatrix4(mesh.matrixWorld);
+      totalArea += b.sub(a).cross(c.sub(a)).length() / 2;
+      cumulative[i] = totalArea;
+    }
+    tris.push({ mesh, idx, pos, cumulative, end: totalArea });
+  }
+  if (!totalArea) return extractWorldPoints(root, count);
+
+  const out = [];
+  const v = new THREE.Vector3();
+  for (let s = 0; s < count; s++) {
+    const r = Math.random() * totalArea;
+    const t = tris[firstAbove(tris.length, (i) => tris[i].end, r)];
+    const k = 3 * firstAbove(t.cumulative.length, (i) => t.cumulative[i], r);
+    a.fromBufferAttribute(t.pos, t.idx ? t.idx.getX(k) : k);
+    b.fromBufferAttribute(t.pos, t.idx ? t.idx.getX(k + 1) : k + 1);
+    c.fromBufferAttribute(t.pos, t.idx ? t.idx.getX(k + 2) : k + 2);
+    // Uniform barycentric sample.
+    let u = Math.random();
+    let w = Math.random();
+    if (u + w > 1) {
+      u = 1 - u;
+      w = 1 - w;
+    }
+    v.copy(a)
+      .addScaledVector(b.sub(a), u)
+      .addScaledVector(c.sub(a), w)
+      .applyMatrix4(t.mesh.matrixWorld);
+    out.push([v.x, v.y, v.z]);
+  }
+  return out;
+}
+
+// Index of the first entry (in an ascending sequence) whose value is > r.
+function firstAbove(length, valueAt, r) {
+  let lo = 0;
+  let hi = length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (valueAt(mid) <= r) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+const roundPoints = (pts) =>
+  pts.map((p) => p.map((x) => Math.round(x * 1e4) / 1e4));
+
+// “84% of building on BIM · error ≈ 17 cm” — building_fit ignores trees,
+// ground and clutter; error is the median distance (model units, assumed m).
+export function describeAutoFit(c) {
+  if (!c) return "";
+  if (c.building_fit == null)
+    return `${Math.round((c.fitness || 0) * 100)}% of cloud on BIM`;
+  let text = `${Math.round(c.building_fit * 100)}% of building on BIM`;
+  if (c.error != null) {
+    text +=
+      c.error < 1
+        ? ` · error ≈ ${Math.round(c.error * 100)} cm`
+        : ` · error ≈ ${c.error.toFixed(2)} m`;
+  }
+  return text;
+}
+
+// Shared with the sidebar via window (like the other alignment actions).
+function publishAutoAlignState(state) {
+  window.autoAlignState = state;
+  window.dispatchEvent(new CustomEvent("autoalign-state", { detail: state }));
+}
+
 function matrix4FromNested(T) {
   const m = new THREE.Matrix4();
   m.set(
-    T[0][0], T[0][1], T[0][2], T[0][3],
-    T[1][0], T[1][1], T[1][2], T[1][3],
-    T[2][0], T[2][1], T[2][2], T[2][3],
-    T[3][0], T[3][1], T[3][2], T[3][3],
+    T[0][0],
+    T[0][1],
+    T[0][2],
+    T[0][3],
+    T[1][0],
+    T[1][1],
+    T[1][2],
+    T[1][3],
+    T[2][0],
+    T[2][1],
+    T[2][2],
+    T[2][3],
+    T[3][0],
+    T[3][1],
+    T[3][2],
+    T[3][3],
   );
   return m;
 }
@@ -181,7 +299,9 @@ export default function useAlignment(sceneData, modelData, props) {
     // re-uploaded and marked latest without the point cloud itself
     // changing), undo that one first so the two don't stack.
     if (sameModel && appliedMatrixRef.current) {
-      pcModel.applyMatrix4(matrix4FromNested(appliedMatrixRef.current).invert());
+      pcModel.applyMatrix4(
+        matrix4FromNested(appliedMatrixRef.current).invert(),
+      );
     }
 
     applyMatrixToModel(uploadedAlignmentMatrix);
@@ -191,7 +311,14 @@ export default function useAlignment(sceneData, modelData, props) {
     setMatrix(uploadedAlignmentMatrix);
     onMatrixChange?.(uploadedAlignmentMatrix);
     toast.success("Point cloud aligned using the uploaded matrix file.");
-  }, [pcModel, uploadedAlignmentMatrix, applyMatrixToModel, lockAlignment, onMatrixChange, toast]);
+  }, [
+    pcModel,
+    uploadedAlignmentMatrix,
+    applyMatrixToModel,
+    lockAlignment,
+    onMatrixChange,
+    toast,
+  ]);
 
   const alignGeometry = useCallback(() => {
     const result = computeAlignmentMatrix();
@@ -202,7 +329,13 @@ export default function useAlignment(sceneData, modelData, props) {
     applyMatrixToModel(result);
     lockAlignment();
     toast.success("Geometry aligned from picked points.");
-  }, [computeAlignmentMatrix, onMatrixChange, applyMatrixToModel, lockAlignment, toast]);
+  }, [
+    computeAlignmentMatrix,
+    onMatrixChange,
+    applyMatrixToModel,
+    lockAlignment,
+    toast,
+  ]);
 
   // Real dense ICP: refine on the server (numpy/scipy) using both full clouds.
   // Seeds with the coarse Kabsch pick-align when ≥3 point pairs are available.
@@ -257,7 +390,182 @@ export default function useAlignment(sceneData, modelData, props) {
       console.error("ICP align failed", err);
       toast.error(err.response?.data?.error || "ICP alignment failed.");
     }
-  }, [pcModel, bimModel, bimPoints, pcPoints, onMatrixChange, lockAlignment, toast]);
+  }, [
+    pcModel,
+    bimModel,
+    bimPoints,
+    pcPoints,
+    onMatrixChange,
+    lockAlignment,
+    toast,
+  ]);
+
+  // ================= AUTO ALIGN =================
+  // One click, no picks: the server samples features, matches them, runs
+  // RANSAC + ICP (with a scale search for unscaled photogrammetry clouds) and
+  // returns ranked candidate poses. We apply the best and keep the others so
+  // the user can “Try Next Result” or “Undo”.
+  // { before: Matrix4 of the cloud before aligning, candidates, index }
+  const autoRef = useRef(null);
+  const [autoBusy, setAutoBusy] = useState(false);
+
+  const publishAuto = useCallback((busy) => {
+    const run = autoRef.current;
+    const current = run?.candidates[run.index];
+    publishAutoAlignState({
+      busy,
+      count: run?.candidates.length || 0,
+      index: run?.index ?? -1,
+      fitness: current?.fitness,
+      fitText: describeAutoFit(current),
+      scale: current?.scale,
+      confidence: run?.index === 0 ? run.confidence : null,
+      ambiguous: run?.ambiguous,
+    });
+  }, []);
+
+  // A different cloud or BIM invalidates the stored candidates.
+  useEffect(() => {
+    autoRef.current = null;
+    publishAuto(false);
+  }, [pcModel, bimModel, publishAuto]);
+
+  const showAutoCandidate = useCallback(
+    (index) => {
+      const run = autoRef.current;
+      if (!run || !pcModel) return;
+      const T = run.candidates[index].transform;
+      pcModel.matrix.copy(run.before);
+      pcModel.matrix.decompose(
+        pcModel.position,
+        pcModel.quaternion,
+        pcModel.scale,
+      );
+      pcModel.applyMatrix4(matrix4FromNested(T));
+      pcModel.updateMatrixWorld(true);
+      run.index = index;
+      setMatrix(T);
+      onMatrixChange?.(T);
+      lockAlignment();
+      publishAuto(false);
+    },
+    [pcModel, onMatrixChange, lockAlignment, publishAuto],
+  );
+
+  const autoAlign = useCallback(async () => {
+    if (autoBusy) return;
+    if (!pcModel || !bimModel) {
+      toast.info("Load both a BIM model and a point cloud before Auto Align.");
+      return;
+    }
+
+    // Picked pairs (if any) become a starting guess; otherwise fully automatic.
+    let init = null;
+    if (bimPoints.length >= 3 && bimPoints.length === pcPoints.length) {
+      init = computeAlignmentMatrix();
+    }
+
+    // Re-running starts from the original pose, not a previous result —
+    // unless picks were made, which are only valid at the current pose.
+    if (autoRef.current && !init) {
+      pcModel.matrix.copy(autoRef.current.before);
+      pcModel.matrix.decompose(
+        pcModel.position,
+        pcModel.quaternion,
+        pcModel.scale,
+      );
+      pcModel.updateMatrixWorld(true);
+    }
+
+    pcModel.updateMatrix();
+    const before = pcModel.matrix.clone();
+    const target = sampleWorldSurface(bimModel, 60000);
+    const source = extractWorldPoints(pcModel, 60000);
+    if (source.length < 100 || target.length < 100) {
+      toast.error("Not enough geometry to auto-align.");
+      return;
+    }
+
+    setAutoBusy(true);
+    publishAuto(true);
+    toast.info(
+      init
+        ? "Auto aligning from your picked points…"
+        : "Auto aligning — matching features, RANSAC, ICP… (may take ~30 s)",
+    );
+    try {
+      const res = await API.post("processing/align/auto/", {
+        source: roundPoints(source),
+        target: roundPoints(target),
+        init_transform: init,
+      });
+      autoRef.current = {
+        before,
+        candidates: res.data.candidates,
+        confidence: res.data.confidence,
+        ambiguous: res.data.ambiguous,
+        index: 0,
+      };
+      showAutoCandidate(0);
+
+      const msg = `Auto aligned — ${describeAutoFit(res.data)} (confidence: ${res.data.confidence}).`;
+      if (res.data.confidence === "high") toast.success(msg);
+      else
+        toast.info(
+          `${msg} Check it; use "Try Next Result", or pick 3 point pairs and run Auto Align again.`,
+        );
+    } catch (err) {
+      console.error("Auto align failed", err);
+      toast.error(
+        err.response?.data?.error ||
+          (err.response
+            ? `Auto alignment failed (HTTP ${err.response.status}).`
+            : "Auto alignment failed — could not reach the backend. Is the Django server running?"),
+      );
+      publishAuto(false);
+    } finally {
+      setAutoBusy(false);
+    }
+  }, [
+    autoBusy,
+    pcModel,
+    bimModel,
+    bimPoints,
+    pcPoints,
+    computeAlignmentMatrix,
+    showAutoCandidate,
+    publishAuto,
+    toast,
+  ]);
+
+  const tryNextAutoAlign = useCallback(() => {
+    const run = autoRef.current;
+    if (!run || run.candidates.length < 2) {
+      toast.info("No other alignment results to try.");
+      return;
+    }
+    const next = (run.index + 1) % run.candidates.length;
+    showAutoCandidate(next);
+    toast.info(
+      `Result ${next + 1} of ${run.candidates.length} — ${describeAutoFit(run.candidates[next])}.`,
+    );
+  }, [showAutoCandidate, toast]);
+
+  const undoAutoAlign = useCallback(() => {
+    const run = autoRef.current;
+    if (!run || !pcModel) return;
+    pcModel.matrix.copy(run.before);
+    pcModel.matrix.decompose(
+      pcModel.position,
+      pcModel.quaternion,
+      pcModel.scale,
+    );
+    pcModel.updateMatrixWorld(true);
+    autoRef.current = null;
+    setMatrix(null);
+    publishAuto(false);
+    toast.info("Auto alignment undone.");
+  }, [pcModel, publishAuto, toast]);
 
   // ================= GENERATE MATRIX =================
   // With 3+ picked pairs → Kabsch matrix from the picks.
@@ -284,7 +592,14 @@ export default function useAlignment(sceneData, modelData, props) {
     setMatrix(result);
     onMatrixChange?.(result);
     toast.success("Matrix generated from the current point-cloud position.");
-  }, [pcModel, bimPoints, pcPoints, computeAlignmentMatrix, onMatrixChange, toast]);
+  }, [
+    pcModel,
+    bimPoints,
+    pcPoints,
+    computeAlignmentMatrix,
+    onMatrixChange,
+    toast,
+  ]);
 
   // ================= EXPORT MATRIX =================
   // Always produces a file: uses the generated matrix if present, otherwise
@@ -297,7 +612,9 @@ export default function useAlignment(sceneData, modelData, props) {
         pcModel.updateMatrixWorld(true);
         data = nestedFromMatrix4(pcModel.matrixWorld);
       } else {
-        toast.info("Load a point cloud (or run an alignment) before exporting.");
+        toast.info(
+          "Load a point cloud (or run an alignment) before exporting.",
+        );
         return;
       }
     }
@@ -358,6 +675,9 @@ export default function useAlignment(sceneData, modelData, props) {
   useEffect(() => {
     window.alignGeometry = alignGeometry;
     window.alignGeometryICP = alignGeometryICP;
+    window.autoAlign = autoAlign;
+    window.tryNextAutoAlign = tryNextAutoAlign;
+    window.undoAutoAlign = undoAutoAlign;
     window.generateMatrix = generateMatrix;
     window.exportMatrix = exportMatrix;
     window.applyUploadedMatrix = applyUploadedMatrix;

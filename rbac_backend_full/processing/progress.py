@@ -121,6 +121,24 @@ CATEGORY_MAP = {
     "IFCTENDON": "Reinforcement",
 }
 
+# Category → trade, for the per-trade progress rollup. Listed in build order;
+# categories not listed fall under "Other".
+TRADES = [
+    ("Substructure", {"Footings", "Piles"}),
+    ("Structure", {"Slabs", "Columns", "Beams", "Reinforcement", "Stairs", "Ramps"}),
+    ("Walls & Partitions", {"Walls", "Building Element Parts"}),
+    ("Envelope", {"Roofs", "Curtain Walls", "Plates", "Members"}),
+    ("Doors & Windows", {"Doors", "Windows"}),
+    ("MEP", {"MEP Terminals", "MEP Segments", "MEP Fittings", "MEP Controllers",
+             "MEP Elements", "MEP Chambers", "Sanitary Fixtures", "Transport Elements"}),
+    ("Finishes & Fit-out", {"Ceilings/Coverings", "Railings", "Furniture", "Accessories"}),
+]
+TRADE_OF_CATEGORY = {cat: trade for trade, cats in TRADES for cat in cats}
+
+# Rooms and voids have geometry but are never "built", so they'd only drag
+# every floor/trade percentage down.
+NON_BUILDABLE_CATEGORIES = {"Spaces", "Openings"}
+
 
 # ─── Transform helpers ─────────────────────────────────────────────────────────
 
@@ -642,18 +660,62 @@ def _assign_points_to_elements(elements, pc_points, threshold, rng):
 
 # ─── Main analysis ─────────────────────────────────────────────────────────────
 
-COMPLETED_THRESHOLD = 100.0  # completion % at/above which an element is "Completed"
+# ─── Automatic built detection ─────────────────────────────────────────────────
+#
+# A full scan rarely reaches 100% of an element's surface (occlusion, scanner
+# reach), so an element is marked built once enough of it is covered AND the
+# points on it look like the real, permanent element rather than scaffolding,
+# formwork, machinery or people standing in front of it. Evidence, strongest
+# first:
+#   "sam"      — SAM photo masks projected onto the cloud in the viewer label
+#                most of the element's points as concrete / structure,
+#   "plane"    — (walls/slabs/roofs, server-side overlap only) the points form
+#                a coherent plane under RANSAC,
+#   "coverage" — no other evidence available; coverage alone decides.
+
+BUILT_COVERAGE = 60.0     # default completion % from which an element can count as built
+MIN_BUILT_POINTS = 10     # never call an element built from a handful of stray points
+SAM_MIN_LABELED = 20      # SAM-labelled points needed before SAM evidence is trusted
+SAM_BUILT_RATIO = 0.5     # share of labelled points that must be permanent material
 
 
-def _status(overlap_points, pct):
+def sam_evidence(labels):
+    """(built_ratio, clutter_ratio) from one element's SAM label counts
+    {"built", "partial", "clutter"}, or (None, None) when too few of its
+    points were labelled to say anything."""
+    if not labels:
+        return None, None
+    built = int(labels.get("built") or 0)
+    partial = int(labels.get("partial") or 0)
+    clutter = int(labels.get("clutter") or 0)
+    labeled = built + partial + clutter
+    if labeled < SAM_MIN_LABELED:
+        return None, None
+    return built / labeled, clutter / labeled
+
+
+def detect_built(overlap_points, pct, sam_built_ratio, plane_verified, built_coverage=BUILT_COVERAGE):
+    """Which evidence marks this element built ("sam" / "plane" / "coverage"),
+    or "" if it isn't."""
+    if overlap_points < MIN_BUILT_POINTS or pct < built_coverage:
+        return ""
+    if sam_built_ratio is not None:
+        return "sam" if sam_built_ratio >= SAM_BUILT_RATIO else ""
+    if plane_verified is not None:
+        return "plane" if plane_verified else ""
+    return "coverage"
+
+
+def _status(overlap_points, built_by):
+    if built_by:
+        return "completed"
     if overlap_points <= 0:
         return "not_started"
-    if pct >= COMPLETED_THRESHOLD:
-        return "completed"
     return "in_progress"
 
 
-def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, overlap_snapshot=None):
+def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, overlap_snapshot=None,
+            semantic_snapshot=None, built_coverage=BUILT_COVERAGE):
     """
     Returns { elements: [...], summary: {...}, categories: [...] } or raises.
     `threshold` = max distance (m) a scan point may be from a BIM surface to
@@ -671,6 +733,14 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
     from the same live session the user visually confirmed. This sidesteps
     any mismatch between ifcopenshell's and the browser's IFC-geometry
     coordinate frames for elements that were actually measured live.
+
+    `semantic_snapshot`: optional {express_id(str): {built, partial, clutter}}
+    SAM label counts for those same overlapping points (see
+    useSAMProgressDetection.js). Points labelled as clutter (scaffolding,
+    equipment, workers, ground, sky) are removed from the element's overlap,
+    and the built share is the evidence `detect_built` uses.
+
+    `built_coverage`: completion % from which an element can be marked built.
     """
     elements = extract_elements(ifc_path)
     if not elements:
@@ -729,6 +799,14 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
             overlap_idx = np.nonzero(owner_of_point == i)[0]
             overlap_points = int(len(overlap_idx))
 
+        sam_built_ratio, clutter_ratio = sam_evidence(
+            (semantic_snapshot or {}).get(str(el["express_id"]))
+        )
+        if clutter_ratio:
+            # Scaffolding/equipment/people overlapping the element aren't the
+            # element itself — only the remaining share counts as built.
+            overlap_points = int(round(overlap_points * (1.0 - clutter_ratio)))
+
         density = _element_density(pc_tree, verts, el.get("faces"), threshold, global_density, rng)
         # Points can only physically land in the thin shell around the true
         # surface (surface_area × threshold), not the full solid volume.
@@ -760,6 +838,7 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
             plane_inlier = round(ratio, 3)
             verified = ratio >= 0.5
 
+        built_by = detect_built(overlap_points, pct, sam_built_ratio, verified, built_coverage)
         results.append({
             "element_id": el["global_id"],
             "express_id": el["express_id"],
@@ -772,7 +851,9 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
             "bim_points": points_max,
             "overlap_points": overlap_points,
             "completion": pct,
-            "status": _status(overlap_points, pct),
+            "status": _status(overlap_points, built_by),
+            "built_by": built_by,
+            "sam_built_ratio": round(sam_built_ratio, 3) if sam_built_ratio is not None else None,
             "plane_inlier": plane_inlier,
             "verified": verified,
         })
@@ -781,8 +862,10 @@ def analyze(ifc_path, pc_path, bim_transform, pc_transform, threshold=0.15, over
     categories = _by_category(results)
     return {
         "elements": results, "summary": summary, "categories": categories,
-        "point_count": point_count, "threshold": threshold,
+        "levels": by_level(results), "trades": by_trade(results),
+        "point_count": point_count, "threshold": threshold, "built_coverage": built_coverage,
         "overlap_source": "viewer_snapshot" if overlap_snapshot is not None else "server_alignment",
+        "sam_labels": semantic_snapshot is not None,
     }
 
 
@@ -854,6 +937,59 @@ def _by_category(results):
             "points_coverage": coverage,
         })
     return out
+
+
+def _rollup(results, group_of):
+    """{group: {...}} of built progress for buildable elements, grouped by
+    `group_of(element)`. `completion` is by element count (like categories);
+    `volume_completion` weights each element by its BIM volume, so a slab
+    counts for more than a door."""
+    from collections import defaultdict
+    g = defaultdict(lambda: {
+        "total": 0, "completed": 0, "in_progress": 0, "not_started": 0,
+        "bim_volume": 0.0, "built_volume": 0.0,
+        "built_by": {"sam": 0, "plane": 0, "coverage": 0},
+    })
+    for r in results:
+        if r.get("category") in NON_BUILDABLE_CATEGORIES:
+            continue
+        v = g[group_of(r)]
+        v["total"] += 1
+        status = r.get("status") or "not_started"
+        v[status] = v.get(status, 0) + 1
+        volume = float(r.get("bim_volume") or 0.0)
+        v["bim_volume"] += volume
+        if status == "completed":
+            v["built_volume"] += volume
+        if r.get("built_by") in v["built_by"]:
+            v["built_by"][r["built_by"]] += 1
+    for v in g.values():
+        v["completion"] = count_completion(v["completed"], v["total"])
+        v["volume_completion"] = (
+            round(v["built_volume"] / v["bim_volume"] * 100.0, 2) if v["bim_volume"] > 0 else 0.0
+        )
+        v["bim_volume"] = round(v["bim_volume"], 3)
+        v["built_volume"] = round(v["built_volume"], 3)
+    return g
+
+
+def by_level(results):
+    """Built progress per floor (IfcBuildingStorey), bottom floor first."""
+    elevations = {}
+    for r in results:
+        lv, el = r.get("level") or "", r.get("level_elevation")
+        if el is not None and (lv not in elevations or el < elevations[lv]):
+            elevations[lv] = el
+    g = _rollup(results, lambda r: r.get("level") or "")
+    order = sorted(g, key=lambda lv: (lv == "", elevations.get(lv) is None, elevations.get(lv) or 0.0, lv))
+    return [{"level": lv or "Unassigned", "elevation": elevations.get(lv), **g[lv]} for lv in order]
+
+
+def by_trade(results):
+    """Built progress per trade (see TRADES), in build order."""
+    g = _rollup(results, lambda r: TRADE_OF_CATEGORY.get(r.get("category"), "Other"))
+    order = [t for t, _ in TRADES] + ["Other"]
+    return [{"trade": t, **g[t]} for t in order if t in g]
 
 
 def sanitize_result(obj):

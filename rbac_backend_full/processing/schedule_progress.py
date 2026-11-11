@@ -13,10 +13,20 @@ An activity is matched to elements by, in order of preference:
      storey equals the activity's level (case-insensitive, after applying
      schedule.meta["level_map"] = {schedule level: IFC storey name}).
 """
+import os
 import re
 
 # Missing-element rows returned per activity; the full count is always sent.
 MISSING_LIMIT = 500
+
+# Attribute-only element index per IFC (keyed by path + mtime) for the 4D view.
+_INDEX_CACHE = {}
+
+# Spatial/void entities that have a Representation but aren't built elements.
+_NON_ELEMENT_TYPES = (
+    "IfcSpatialStructureElement", "IfcSpatialElement", "IfcOpeningElement",
+    "IfcAnnotation", "IfcGrid",
+)
 
 _UNGROUPED = {"", "ungrouped"}
 
@@ -56,6 +66,81 @@ def build_matchers(activities, meta):
             lambda e, t=types, lv=level: e["level_norm"] == lv and e["element_type"].upper().startswith(t),
         )
     return matchers
+
+
+def element_index(ifc_path):
+    """Every built element in the IFC as {express_id, element_id (GlobalId),
+    element_type, level} — attributes only, no geometry, so it's quick enough
+    to run on request. express_id is the STEP line number, which is also the
+    expressID web-ifc gives each element in the browser."""
+    import ifcopenshell
+    import ifcopenshell.util.element as element_util
+    from .progress import _storey_of
+
+    try:
+        key = (ifc_path, os.path.getmtime(ifc_path))
+        if key in _INDEX_CACHE:
+            return _INDEX_CACHE[key]
+    except OSError:
+        key = None
+
+    model = ifcopenshell.open(ifc_path)
+    out = []
+    for product in model.by_type("IfcProduct"):
+        if getattr(product, "Representation", None) is None:
+            continue
+        if any(_is_a(product, t) for t in _NON_ELEMENT_TYPES):
+            continue
+        try:
+            level, _elevation = _storey_of(product, element_util)
+        except Exception:  # floor is optional — never drop the element
+            level = ""
+        out.append({
+            "express_id": product.id(),
+            "element_id": getattr(product, "GlobalId", "") or str(product.id()),
+            "element_type": product.is_a().upper(),
+            "level": level,
+        })
+    if key:
+        _INDEX_CACHE.clear()  # one model at a time is plenty
+        _INDEX_CACHE[key] = out
+    return out
+
+
+def _is_a(entity, ifc_class):
+    try:
+        return entity.is_a(ifc_class)
+    except Exception:  # class not in this schema (e.g. IFC2X3 vs IFC4)
+        return False
+
+
+# Explicit GlobalId lists beat type+level rules, which beat type-only rules,
+# so a broad "all IFCWALL" activity can't steal elements a precise one owns.
+_MATCH_PRIORITY = {"elements": 0, "type_level": 1, "type": 2}
+
+
+def link_elements(activities, meta, elements):
+    """{express_id: activity_id} — each element goes to the highest-priority
+    activity that matches it (schedule order breaks ties), using the same
+    matchers as the dashboard's measured progress."""
+    matchers = build_matchers(activities, meta)
+    ordered = sorted(
+        (
+            (_MATCH_PRIORITY[kind], i, str(a.get("id", "")), pred)
+            for i, a in enumerate(activities)
+            for kind, pred in [matchers[str(a.get("id", ""))]]
+            if pred is not None
+        ),
+        key=lambda t: (t[0], t[1]),
+    )
+    links = {}
+    for e in elements:
+        e["level_norm"] = _norm(e.get("level"))
+        for _prio, _i, aid, pred in ordered:
+            if pred(e):
+                links[e["express_id"]] = aid
+                break
+    return links
 
 
 def compute(activities, meta, scans):
