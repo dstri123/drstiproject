@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import ReactDOM from "react-dom";
 import { useParams, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
@@ -7,6 +13,8 @@ import API from "../../api/axios";
 import Layout from "./layout/Layout";
 import ThreeViewer from "./components/viewer/ThreeViewer";
 import { applyHiddenElements } from "./components/viewer/elementVisibility";
+import useIssues from "./issues/useIssues";
+import IssueFormModal from "./issues/IssueFormModal";
 import { useToast } from "../../components/ToastContainer";
 
 export default function ViewerPage({
@@ -583,6 +591,9 @@ export default function ViewerPage({
   const [isSamRunning, setIsSamRunning] = useState(false);
   const [samProgress, setSamProgress] = useState(null);
   const [semanticSummary, setSemanticSummary] = useState(null);
+  const [runBuiltDetection, setRunBuiltDetection] = useState(null);
+  const [isBuiltDetecting, setIsBuiltDetecting] = useState(false);
+  const [builtDetectProgress, setBuiltDetectProgress] = useState(null);
   const handleModelDataChange = useCallback(
     ({
       // ── segmentation ──
@@ -595,7 +606,15 @@ export default function ViewerPage({
       isSamRunning,
       samProgress,
       semanticSummary,
+      ...rest
     }) => {
+      // ThreeViewer reports from two effects with different fields, so only
+      // touch the built-detection state when it's actually included.
+      if ("runBuiltDetection" in rest) {
+        setRunBuiltDetection(() => rest.runBuiltDetection);
+        setIsBuiltDetecting(!!rest.isBuiltDetecting);
+        setBuiltDetectProgress(rest.builtDetectProgress || null);
+      }
       setToggleSegmentation(() => toggleSegmentation);
       setIsSegmented(isSegmented);
       setIsSegmenting(isSegmenting);
@@ -609,6 +628,43 @@ export default function ViewerPage({
     },
     [],
   );
+
+  // "Auto-detect Built Elements": label the cloud with SAM from the posed
+  // photos, count labelled overlap per BIM element, and hand it to Progress
+  // Assessment, whose Analyze then marks elements built automatically.
+  const handleAutoDetectBuilt = useCallback(async () => {
+    if (!runBuiltDetection) return;
+    if (!latestBimItem || !latestPointItem) {
+      toast.info("Load both a BIM and a Point Cloud first.");
+      return;
+    }
+    try {
+      const res = await runBuiltDetection();
+      const n = Object.keys(res.elements).length;
+      if (!n) {
+        toast.info(
+          "No point-cloud points overlap the BIM — align the models first.",
+        );
+        return;
+      }
+      await API.post("processing/progress/sam-snapshot/", {
+        project_id: id,
+        bim_id: latestBimItem.id,
+        pointcloud_id: latestPointItem.id,
+        bim_element_count: res.bimElementCount,
+        cameras_used: res.photosUsed,
+        elements: res.elements,
+      });
+      toast.success(
+        `SAM labelled ${res.labeledPoints.toLocaleString()} points from ${res.photosUsed} photo(s) across ${n} elements. Open Progress Assessment and click Analyze to mark built elements (applies to the next Analyze only).`,
+      );
+    } catch (e) {
+      console.error("built detection failed", e);
+      toast.error(
+        e.response?.data?.error || e.message || "Built detection failed.",
+      );
+    }
+  }, [id, latestBimItem, latestPointItem, runBuiltDetection, toast]);
 
   const [sectionBoxActive, setSectionBoxActive] = useState(false);
   const handleSectionBoxChange = useCallback(({ enabled }) => {
@@ -713,6 +769,67 @@ export default function ViewerPage({
     };
   }, [handleSendOverlapSnapshot]);
 
+  // ── Issues pinned in 3D ─────────────────────────────────────────────────
+  // Pin mode → click on the model → draft (new issue form); clicking a pin
+  // or a list row opens the existing issue and flies the camera to it.
+  const issueData = useIssues(id);
+  const [issuePinMode, setIssuePinMode] = useState(false);
+  const [issueDraft, setIssueDraft] = useState(null);
+  const [openIssue, setOpenIssue] = useState(null);
+  // Issues whose pin the user switched off with the eye icon (this session).
+  const [hiddenIssueIds, setHiddenIssueIds] = useState(() => new Set());
+  const toggleIssueVisible = useCallback((issueId) => {
+    setHiddenIssueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) next.delete(issueId);
+      else next.add(issueId);
+      return next;
+    });
+  }, []);
+  const visibleIssues = useMemo(
+    () => issueData.issues.filter((i) => !hiddenIssueIds.has(i.id)),
+    [issueData.issues, hiddenIssueIds],
+  );
+
+  const handleIssuePick = useCallback((draft) => {
+    setIssuePinMode(false);
+    setIssueDraft(draft);
+  }, []);
+  const handleOpenIssue = useCallback((issue) => {
+    setIssuePinMode(false);
+    setOpenIssue(issue);
+    window.flyToIssue?.(issue);
+  }, []);
+  const closeIssueForm = useCallback(() => {
+    setIssueDraft(null);
+    setOpenIssue(null);
+  }, []);
+  const saveIssue = useCallback(
+    async (fields, files) => {
+      const saved = await issueData.save(openIssue?.id ?? null, fields, files);
+      toast.success(
+        openIssue ? `Issue #${saved.number} updated.` : `Issue #${saved.number} created.`,
+      );
+      closeIssueForm();
+    },
+    [issueData, openIssue, toast, closeIssueForm],
+  );
+  const deleteIssue = useCallback(async () => {
+    await issueData.remove(openIssue.id);
+    toast.success(`Issue #${openIssue.number} deleted.`);
+    closeIssueForm();
+  }, [issueData, openIssue, toast, closeIssueForm]);
+  const exportIssuesBcf = useCallback(
+    async (params) => {
+      try {
+        await issueData.exportBcf(params);
+      } catch (e) {
+        toast.error("BCF export failed.");
+      }
+    },
+    [issueData, toast],
+  );
+
   return (
     <Layout
       projectSlug={projectSlug}
@@ -762,6 +879,20 @@ export default function ViewerPage({
         isSemanticActive,
         isSamRunning,
         samProgress,
+        onAutoDetectBuilt: runBuiltDetection ? handleAutoDetectBuilt : null,
+        isBuiltDetecting,
+        builtDetectProgress,
+        issuesPanelProps: {
+          issues: issueData.issues,
+          loading: issueData.loading,
+          pinMode: issuePinMode,
+          hasBim: !!bimModel,
+          onTogglePinMode: () => setIssuePinMode((on) => !on),
+          onOpen: handleOpenIssue,
+          onExport: exportIssuesBcf,
+          hiddenIds: hiddenIssueIds,
+          onToggleVisible: toggleIssueVisible,
+        },
       }}
     >
       <div style={{ width: "100%", height: "100%", position: "relative" }}>
@@ -862,8 +993,27 @@ export default function ViewerPage({
           saveStatus={saveStatus}
           // ── segmentation ──
           onModelDataChange={handleModelDataChange}
+          // ── issues ──
+          issues={visibleIssues}
+          issuePinMode={issuePinMode}
+          selectedIssueId={openIssue?.id}
+          onIssuePick={handleIssuePick}
+          onIssueSelect={handleOpenIssue}
+          onCancelIssuePin={() => setIssuePinMode(false)}
         />
       </div>
+      {(issueDraft || openIssue) && (
+        <IssueFormModal
+          key={openIssue?.id ?? "new"}
+          draft={issueDraft}
+          issue={openIssue}
+          bimId={latestBimItem?.id}
+          assignees={issueData.assignees}
+          onSave={saveIssue}
+          onDelete={deleteIssue}
+          onClose={closeIssueForm}
+        />
+      )}
     </Layout>
   );
 }

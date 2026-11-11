@@ -9,6 +9,7 @@ import {
   AlignCenter,
   Camera,
   BarChart2,
+  MapPin,
 } from "lucide-react";
 
 const TOOLS = [
@@ -17,6 +18,7 @@ const TOOLS = [
   { id: "picking", icon: Crosshair, label: "Picking", adminOnly: true },
   { id: "alignment", icon: AlignCenter, label: "Alignment", adminOnly: true },
   { id: "cameras", icon: Camera, label: "Cameras" },
+  { id: "issues", icon: MapPin, label: "Issues" },
 ];
 
 export default function IconToolbar({

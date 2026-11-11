@@ -5,14 +5,14 @@ import * as THREE from "three";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
-import { IFCLoader } from "web-ifc-three/IFCLoader";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import BlenderViewportGizmo from "../viewer/components/gizmo/BlenderViewportGizmo";
 import Header from "../viewer/layout/Header";
 import IconToolbar from "../viewer/layout/IconToolbar";
 import ContextPanel from "../viewer/layout/Sidebar";
 import API from "../../api/axios";
-import { getProjectIdFromSlug } from "@/lib/utils";
+import { createProjectSlug, getProjectIdFromSlug } from "@/lib/utils";
+import { fetchAsArrayBuffer, getFileUrl, parseIfc } from "@/lib/ifcModel";
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,9 +21,6 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const MEDIA_BASE = "http://127.0.0.1:8000";
 
 const calBtnStyle = {
   display: "flex",
@@ -38,64 +35,12 @@ const calBtnStyle = {
   letterSpacing: "0.02em",
 };
 
-// ─── File fetcher ─────────────────────────────────────────────────────────────
-// Downloads a media file from the backend as a Blob URL.
-// Using fetch (not the Three.js XHR loader) ensures the auth token is sent and
-// the response is fully buffered before being handed to IFCLoader/PLYLoader —
-// the same mechanism used when a user uploads a local file.
-async function fetchAsBlob(url) {
-  const token = localStorage.getItem("token") || localStorage.getItem("access");
-  const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`Server returned ${res.status} for ${url}`);
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
-}
-
-// Downloads a media file straight into an ArrayBuffer. Used for point clouds:
-// they can be hundreds of MB, and buffering that as a Blob (twice, when both
-// sides load at once) blows Chrome's blob-storage quota, which surfaces as
-// net::ERR_FAILED 200 / "Could not load".
-async function fetchAsArrayBuffer(url) {
-  const token = localStorage.getItem("token") || localStorage.getItem("access");
-  const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`Server returned ${res.status} for ${url}`);
-  return res.arrayBuffer();
-}
-
-let ifcLoaderSingleton = null;
-function getIfcLoader() {
-  if (!ifcLoaderSingleton) {
-    ifcLoaderSingleton = new IFCLoader();
-    ifcLoaderSingleton.ifcManager.ifcAPI.SetWasmPath("/wasm/", true);
-  }
-  return ifcLoaderSingleton;
-}
-
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 function toDateStr(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
-}
-
-// Build a full URL for a Django media file.
-// Django DRF FileField serialises to the upload_to-relative path
-// e.g. "bim_files/As_Planned.ifc" → must become
-//      http://127.0.0.1:8000/media/bim_files/As_Planned.ifc
-function getFileUrl(filePath) {
-  if (!filePath) return null;
-  if (filePath.startsWith("http://") || filePath.startsWith("https://"))
-    return filePath;
-  const withSlash = filePath.startsWith("/") ? filePath : `/${filePath}`;
-  const withMedia = withSlash.startsWith("/media/")
-    ? withSlash
-    : `/media${withSlash}`;
-  return `${MEDIA_BASE}${withMedia}`;
 }
 
 // ─── MonthCalendar popup (rendered via portal so it escapes overflow:hidden) ──
@@ -463,6 +408,151 @@ function applyCleanBim(root) {
   });
 }
 
+// Dragging a clip handle into the last OVERLAY_ZONE of the viewport "closes"
+// that side: instead of clipping it away, both sides are drawn whole and the
+// closing side is superimposed as a ghost whose opacity ramps from GHOST_MIN
+// (just entered the zone) to GHOST_MAX (handle at the edge).
+const OVERLAY_ZONE = 0.1;
+const GHOST_MIN = 0.25;
+const GHOST_MAX = 0.7;
+
+// Orient a curtain plane pair so it passes through the camera and the
+// handle's line on screen: Side A keeps what is left of (or below) the line,
+// Side B what is right of (or above) it. Being screen-based, the wipe follows
+// the handle exactly no matter where each model sits in the world — a
+// world-space plane would cut a model away entirely when the two dates'
+// models don't overlap (e.g. a BIM and a not-yet-aligned point cloud).
+// axis "v": f = handle x as a 0..1 fraction from the left;
+// axis "h": f = handle y as a 0..1 fraction from the top.
+const _curtainP1 = new THREE.Vector3();
+const _curtainP2 = new THREE.Vector3();
+const _curtainProbe = new THREE.Vector3();
+function setScreenCurtain(camera, planeA, planeB, axis, f) {
+  if (!planeA || !planeB) return;
+  camera.updateMatrixWorld();
+  if (axis === "v") {
+    const x = 2 * f - 1;
+    _curtainP1.set(x, -1, 0.5).unproject(camera);
+    _curtainP2.set(x, 1, 0.5).unproject(camera);
+    _curtainProbe.set(x - 0.5, 0, 0.5).unproject(camera);
+  } else {
+    const y = 1 - 2 * f;
+    _curtainP1.set(-1, y, 0.5).unproject(camera);
+    _curtainP2.set(1, y, 0.5).unproject(camera);
+    _curtainProbe.set(0, y - 0.5, 0.5).unproject(camera);
+  }
+  planeA.setFromCoplanarPoints(camera.position, _curtainP1, _curtainP2);
+  if (planeA.distanceToPoint(_curtainProbe) < 0) planeA.negate();
+  planeB.copy(planeA).negate();
+}
+
+const applySavedTransform = (object, t) => {
+  if (!object || !t || typeof t !== "object") return;
+  if (Array.isArray(t.position) && t.position.length === 3)
+    object.position.fromArray(t.position);
+  if (Array.isArray(t.quaternion) && t.quaternion.length === 4)
+    object.quaternion.fromArray(t.quaternion);
+  if (Array.isArray(t.scale) && t.scale.length === 3)
+    object.scale.fromArray(t.scale);
+  object.updateMatrix();
+  object.updateMatrixWorld(true);
+};
+
+function disposeObject(obj) {
+  obj.traverse((n) => {
+    // IFC models also live in web-ifc's WASM heap until closed; without this
+    // every date switch leaks a whole model there.
+    if (n.ifcManager && typeof n.close === "function") n.close();
+    if (n.geometry) n.geometry.dispose();
+    if (n.material)
+      (Array.isArray(n.material) ? n.material : [n.material]).forEach((m) =>
+        m.dispose(),
+      );
+  });
+}
+
+// Load one uploaded model (kind "bim" | "pc") in its saved geo-aligned pose.
+// Each material remembers its own opacity in userData.baseOpacity so the
+// opacity slider / overlay ghosting can scale it without losing the BIM look.
+async function loadModel(kind, item) {
+  const url = getFileUrl(item.file);
+  let obj;
+  if (kind === "pc") {
+    // Determine extension from the stored file path.
+    const storedExt = (item.file || "").split(".").pop().toLowerCase();
+    let plyBuffer;
+
+    if (storedExt === "ply") {
+      // PLY: fetch into an ArrayBuffer and parse directly.
+      plyBuffer = await fetchAsArrayBuffer(url);
+    } else {
+      // Non-PLY (LAS/LAZ/PTS/XYZ): download raw, convert to PLY on the
+      // backend so PLYLoader can render it with colors preserved.
+      const rawBuffer = await fetchAsArrayBuffer(url);
+      const filename = (item.file || "cloud.las").split("/").pop();
+      const fd = new FormData();
+      fd.append("file", new Blob([rawBuffer]), filename);
+      const convRes = await API.post(
+        "processing/tools/pointcloud-to-ply/",
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" }, responseType: "arraybuffer" }
+      );
+      plyBuffer = convRes.data;
+    }
+
+    const geometry = new PLYLoader().parse(plyBuffer);
+    if (!geometry.attributes.color) {
+      const n = geometry.attributes.position.count;
+      geometry.setAttribute(
+        "color",
+        new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3),
+      );
+    }
+    // Same size rule as the Viewer (relative to the cloud's extent), but with
+    // a pixel floor: here the camera is often framed on a much larger BIM on
+    // the other side, and pure world-size points would shrink below a pixel
+    // and the cloud would seem not to load at all.
+    geometry.computeBoundingBox();
+    const diag = geometry.boundingBox.getSize(new THREE.Vector3()).length();
+    const material = new THREE.PointsMaterial({
+      size: Math.max(diag * 0.0025, 0.01),
+      vertexColors: true,
+    });
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace(
+        "#include <logdepthbuf_vertex>",
+        "gl_PointSize = max( gl_PointSize, 1.5 );\n#include <logdepthbuf_vertex>",
+      );
+    };
+    obj = new THREE.Points(geometry, material);
+  } else {
+    // Fetch straight into an ArrayBuffer and parse it — no Blob URL. Blob
+    // storage is shared with the (still mounted) Viewer and runs out, which
+    // fails even a small IFC with "Failed to fetch" / net::ERR_FAILED 200.
+    const ext = url.split("?")[0].split(".").pop().toLowerCase();
+    const buffer = await fetchAsArrayBuffer(url);
+    if (ext === "fbx") {
+      obj = new FBXLoader().parse(buffer, "");
+    } else if (ext === "glb" || ext === "gltf") {
+      obj = (await new GLTFLoader().parseAsync(buffer, "")).scene;
+    } else {
+      obj = await parseIfc(buffer);
+    }
+  }
+
+  applySavedTransform(obj, item.transform);
+  // BIM gets the clean "white + edge lines" technical look; point clouds
+  // keep their real colours.
+  if (kind === "bim") applyCleanBim(obj);
+  obj.traverse((n) => {
+    if (!n.material) return;
+    (Array.isArray(n.material) ? n.material : [n.material]).forEach((m) => {
+      m.userData.baseOpacity = m.transparent ? m.opacity : 1;
+    });
+  });
+  return obj;
+}
+
 function CompareScene({ uploadsByDate, initialDate }) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
@@ -496,10 +586,17 @@ function CompareScene({ uploadsByDate, initialDate }) {
   });
   const [loading, setLoading] = useState({ A: false, B: false });
   const [err, setErr] = useState({ A: "", B: "" });
+  const [notice, setNotice] = useState({ A: "", B: "" });
   const [align, setAlign] = useState({
     A: { ...DEFAULT_ALIGN },
     B: { ...DEFAULT_ALIGN },
   });
+  // Mirror of `align` readable from drag handlers without re-binding them.
+  const alignRef = useRef(align);
+  // Side currently ghosted over the other ('A' | 'B'), or null when split.
+  const [overlay, setOverlay] = useState(null);
+  // Bumped on every load so a slow, superseded load doesn't land in the scene.
+  const loadTokenRef = { A: useRef(0), B: useRef(0) };
   const [calOpen, setCalOpen] = useState(null); // 'A' | 'B' | null
   const [panelOpen, setPanelOpen] = useState(true);
   const calRef = { A: useRef(null), B: useRef(null) };
@@ -533,12 +630,11 @@ function CompareScene({ uploadsByDate, initialDate }) {
     dir.position.set(20, 40, 20);
     scene.add(dir);
 
-    // Vertical curtain (X): A keeps x<=cx (normal -X), B keeps x>=cx (+X).
-    vPlane.A.current = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
-    vPlane.B.current = new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
-    // Horizontal curtain (Y): A keeps y<=cy (normal -Y), B keeps y>=cy (+Y).
-    hPlane.A.current = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
-    hPlane.B.current = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    // Curtain planes; oriented every frame by setScreenCurtain.
+    vPlane.A.current = new THREE.Plane();
+    vPlane.B.current = new THREE.Plane();
+    hPlane.A.current = new THREE.Plane();
+    hPlane.B.current = new THREE.Plane();
 
     sceneRef.current = scene;
     cameraRef.current = camera;
@@ -553,6 +649,8 @@ function CompareScene({ uploadsByDate, initialDate }) {
     const animate = () => {
       rafRef.current = requestAnimationFrame(animate);
       controls.update();
+      setScreenCurtain(camera, vPlane.A.current, vPlane.B.current, "v", vClipRef.current);
+      setScreenCurtain(camera, hPlane.A.current, hPlane.B.current, "h", hClipRef.current);
       renderer.render(scene, camera);
     };
     animate();
@@ -617,55 +715,65 @@ function CompareScene({ uploadsByDate, initialDate }) {
     });
   };
 
-  const applySavedTransform = (object, t) => {
-    if (!object || !t || typeof t !== "object") return;
-    if (Array.isArray(t.position) && t.position.length === 3)
-      object.position.fromArray(t.position);
-    if (Array.isArray(t.quaternion) && t.quaternion.length === 4)
-      object.quaternion.fromArray(t.quaternion);
-    if (Array.isArray(t.scale) && t.scale.length === 3)
-      object.scale.fromArray(t.scale);
-    object.updateMatrix();
-    object.updateMatrixWorld(true);
+  // Which side (if any) has its handle dragged into the edge zone, and how far
+  // in (t: 0 → just entered, 1 → at the edge).
+  const closingSide = () => {
+    const v = vClipRef.current;
+    const h = hClipRef.current;
+    if (vOnRef.current) {
+      // Handle at the left edge leaves no room for A, right edge none for B.
+      if (v <= OVERLAY_ZONE) return { side: "A", t: 1 - v / OVERLAY_ZONE };
+      if (v >= 1 - OVERLAY_ZONE)
+        return { side: "B", t: (v - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
+    }
+    if (hOnRef.current) {
+      // B keeps the top part, A the bottom part.
+      if (h <= OVERLAY_ZONE) return { side: "B", t: 1 - h / OVERLAY_ZONE };
+      if (h >= 1 - OVERLAY_ZONE)
+        return { side: "A", t: (h - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
+    }
+    return null;
   };
 
-  const updateClip = useCallback(() => {
-    const box = new THREE.Box3();
-    let any = false;
-    for (const s of ["A", "B"]) {
-      if (objRef[s].current) {
-        box.union(new THREE.Box3().setFromObject(objRef[s].current));
-        any = true;
-      }
-    }
-    if (!any || box.isEmpty()) return;
-    // Vertical curtain along X.
-    const cx = box.min.x + vClipRef.current * (box.max.x - box.min.x);
-    if (vPlane.A.current) vPlane.A.current.constant = cx; // A keeps x<=cx
-    if (vPlane.B.current) vPlane.B.current.constant = -cx; // B keeps x>=cx
-    // Horizontal curtain along Y (handle top→bottom maps high→low Y).
-    const cy = box.min.y + (1 - hClipRef.current) * (box.max.y - box.min.y);
-    if (hPlane.A.current) hPlane.A.current.constant = cy; // A keeps y<=cy
-    if (hPlane.B.current) hPlane.B.current.constant = -cy; // B keeps y>=cy
-    // eslint-disable-next-line
-  }, []);
-
-  // Assign the active clip planes to each side's materials based on the
-  // vertical/horizontal toggles. A fragment is kept only if inside ALL planes,
-  // so with both on you get a quadrant reveal; with one on, a clean wipe.
-  const reassignPlanes = useCallback(() => {
+  // Push clip planes + opacity onto each side's materials. A fragment is kept
+  // only if inside ALL planes, so with both curtains on you get a quadrant
+  // reveal; with one on, a clean wipe. In overlay mode nothing is clipped and
+  // the closing side is drawn see-through on top of the other.
+  const refreshMaterials = useCallback(() => {
+    const ov = closingSide();
     for (const s of ["A", "B"]) {
       const obj = objRef[s].current;
       if (!obj) continue;
       const planes = [];
-      if (vOnRef.current && vPlane[s].current) planes.push(vPlane[s].current);
-      if (hOnRef.current && hPlane[s].current) planes.push(hPlane[s].current);
+      if (!ov) {
+        if (vOnRef.current && vPlane[s].current) planes.push(vPlane[s].current);
+        if (hOnRef.current && hPlane[s].current) planes.push(hPlane[s].current);
+      }
+      const ghost =
+        ov && ov.side === s ? GHOST_MIN + (GHOST_MAX - GHOST_MIN) * ov.t : 1;
+      const opacity = alignRef.current[s].opacity * ghost;
       eachMaterial(obj, (m) => {
         m.clippingPlanes = planes;
+        const o = (m.userData.baseOpacity ?? 1) * opacity;
+        const transparent = o < 1;
+        if (m.transparent !== transparent) {
+          m.transparent = transparent;
+          m.needsUpdate = true;
+        }
+        m.opacity = o;
+        m.depthWrite = ghost === 1;
       });
     }
+    setOverlay(ov ? ov.side : null);
     // eslint-disable-next-line
   }, []);
+
+  // The curtain planes themselves are rebuilt from the camera every frame (see
+  // setScreenCurtain in the render loop); this only re-applies them, plus
+  // opacity / overlay state, to the materials.
+  const updateClip = useCallback(() => {
+    refreshMaterials();
+  }, [refreshMaterials]);
 
   const fitToAll = useCallback(() => {
     const box = new THREE.Box3();
@@ -689,8 +797,7 @@ function CompareScene({ uploadsByDate, initialDate }) {
   const disposeSide = (s) => {
     const obj = objRef[s].current;
     if (obj && sceneRef.current) {
-      eachMaterial(obj, (m) => m.dispose());
-      obj.traverse((n) => n.geometry && n.geometry.dispose());
+      disposeObject(obj);
       sceneRef.current.remove(obj);
     }
     objRef[s].current = null;
@@ -698,7 +805,8 @@ function CompareScene({ uploadsByDate, initialDate }) {
     centerRef[s].current = null;
   };
 
-  // Apply rotation(about centre)/scale/opacity for a side from its align state.
+  // Apply rotation(about centre)/scale for a side from its align state
+  // (opacity is applied by refreshMaterials via updateClip).
   const applyAlign = useCallback((s, a) => {
     const obj = objRef[s].current;
     const base = baseRef[s].current;
@@ -720,148 +828,127 @@ function CompareScene({ uploadsByDate, initialDate }) {
       .multiply(base);
     M.decompose(obj.position, obj.quaternion, obj.scale);
     obj.updateMatrixWorld(true);
-    eachMaterial(obj, (m) => {
-      m.transparent = true;
-      m.opacity = a.opacity;
-    });
     updateClip();
     // eslint-disable-next-line
   }, [updateClip]);
 
-  // ── Load a side's chosen model ───────────────────────────────────────────────
+  const commitAlign = (next) => {
+    alignRef.current = next;
+    setAlign(next);
+  };
+
+  // ── Load a side's chosen model(s) ────────────────────────────────────────────
+  // sel is "all" (every BIM + point cloud uploaded on that date) or "bim:i" /
+  // "pc:i" for a single model. Everything for a side lives in one Group so the
+  // alignment sliders move the whole date together.
   const loadSide = useCallback(
     async (s, dateStr, sel) => {
-      if (!dateStr || !sel) return;
-      const [kind, idxStr] = sel.split(":");
-      const idx = parseInt(idxStr, 10) || 0;
-      const item = uploadsByDate[dateStr]?.[kind]?.[idx];
-      if (!item) return;
+      const day = uploadsByDate[dateStr];
+      if (!day || !sel) return;
+      let items;
+      if (sel === "all") {
+        items = [
+          ...(day.bim || []).map((it) => ["bim", it]),
+          ...(day.pc || []).map((it) => ["pc", it]),
+        ];
+      } else {
+        const [kind, idxStr] = sel.split(":");
+        const item = day[kind]?.[parseInt(idxStr, 10) || 0];
+        items = item ? [[kind, item]] : [];
+      }
+      if (!items.length) return;
 
+      const token = ++loadTokenRef[s].current;
       setErr((e) => ({ ...e, [s]: "" }));
       setLoading((l) => ({ ...l, [s]: true }));
       disposeSide(s);
 
-      const finish = (obj) => {
-        // saved geo-aligned pose first.
-        applySavedTransform(obj, item.transform);
-        // BIM gets the clean "white + edge lines" technical look; point clouds
-        // keep their real colours.
-        if (kind === "bim") applyCleanBim(obj);
-        sceneRef.current.add(obj);
-        objRef[s].current = obj;
-        obj.updateMatrixWorld(true);
-        baseRef[s].current = obj.matrix.clone();
+      const results = await Promise.allSettled(
+        items.map(([kind, item]) => loadModel(kind, item)),
+      );
+      if (token !== loadTokenRef[s].current || !sceneRef.current) {
+        // A newer pick for this side started meanwhile — drop these.
+        results.forEach(
+          (r) => r.status === "fulfilled" && disposeObject(r.value),
+        );
+        return;
+      }
+
+      const group = new THREE.Group();
+      let failed = 0;
+      let reason = "";
+      results.forEach((r) => {
+        if (r.status === "fulfilled") group.add(r.value);
+        else {
+          failed++;
+          reason = reason || r.reason?.message || String(r.reason);
+          console.error(`[Analytics] side ${s} load failed`, r.reason);
+        }
+      });
+
+      if (group.children.length) {
+        sceneRef.current.add(group);
+        objRef[s].current = group;
+        group.updateMatrixWorld(true);
+        baseRef[s].current = group.matrix.clone();
         centerRef[s].current = new THREE.Box3()
-          .setFromObject(obj)
+          .setFromObject(group)
           .getCenter(new THREE.Vector3());
-        // reset this side's alignment to neutral for the new model
-        setAlign((al) => ({ ...al, [s]: { ...DEFAULT_ALIGN } }));
-        reassignPlanes();
-        updateClip();
-        fitToAll();
-      };
-
-      try {
-        const url = getFileUrl(item.file);
-        if (kind === "pc") {
-          // Determine extension from the stored file path.
-          const storedExt = (item.file || "").split(".").pop().toLowerCase();
-          let plyBuffer;
-
-          if (storedExt === "ply") {
-            // PLY: fetch into an ArrayBuffer and parse directly.
-            plyBuffer = await fetchAsArrayBuffer(url);
-          } else {
-            // Non-PLY (LAS/LAZ/PTS/XYZ): download raw, convert to PLY on the
-            // backend so PLYLoader can render it with colors preserved.
-            const rawBuffer = await fetchAsArrayBuffer(url);
-            const filename = (item.file || "cloud.las").split("/").pop();
-            const fd = new FormData();
-            fd.append("file", new Blob([rawBuffer]), filename);
-            const convRes = await API.post(
-              "processing/tools/pointcloud-to-ply/",
-              fd,
-              { headers: { "Content-Type": "multipart/form-data" }, responseType: "arraybuffer" }
-            );
-            plyBuffer = convRes.data;
-          }
-
-          const geometry = new PLYLoader().parse(plyBuffer);
-          if (!geometry.attributes.color) {
-            const n = geometry.attributes.position.count;
-            geometry.setAttribute(
-              "color",
-              new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3),
-            );
-          }
-          const pts = new THREE.Points(
-            geometry,
-            new THREE.PointsMaterial({ size: 0.03, vertexColors: true }),
-          );
-          finish(pts);
-        } else {
-          const ext = url.split("?")[0].split(".").pop().toLowerCase();
-          if (ext === "fbx") {
-            const blob = await fetchAsBlob(url);
-            await new Promise((resolve, reject) =>
-              new FBXLoader().load(
-                blob,
-                (m) => {
-                  finish(m);
-                  resolve();
-                },
-                undefined,
-                reject,
-              ),
-            );
-            URL.revokeObjectURL(blob);
-          } else if (ext === "glb" || ext === "gltf") {
-            const blob = await fetchAsBlob(url);
-            await new Promise((resolve, reject) =>
-              new GLTFLoader().load(
-                blob,
-                (g) => {
-                  finish(g.scene);
-                  resolve();
-                },
-                undefined,
-                reject,
-              ),
-            );
-            URL.revokeObjectURL(blob);
-          } else {
-            const blob = await fetchAsBlob(url);
-            const loader = getIfcLoader();
-            const ifcModel = await new Promise((resolve, reject) => {
-              loader.load(blob, resolve, undefined, reject);
-            });
-            finish(ifcModel);
-            URL.revokeObjectURL(blob);
+        // Reset this side's alignment for the new model(s). If they don't
+        // overlap the other side at all (e.g. a BIM and a point cloud that
+        // were never aligned/saved in the Viewer), the screen wipe would hide
+        // one of them entirely — so start this side centred on the other via
+        // the move offsets (visible in the Align panel, undone by Reset).
+        let next = { ...DEFAULT_ALIGN };
+        const other = objRef[s === "A" ? "B" : "A"].current;
+        let centred = false;
+        if (other) {
+          const mine = new THREE.Box3().setFromObject(group);
+          const theirs = new THREE.Box3().setFromObject(other);
+          if (!mine.isEmpty() && !theirs.isEmpty() && !mine.intersectsBox(theirs)) {
+            const d = theirs
+              .getCenter(new THREE.Vector3())
+              .sub(mine.getCenter(new THREE.Vector3()));
+            next = { ...next, px: d.x, py: d.y, pz: d.z };
+            centred = true;
           }
         }
-      } catch (e) {
-        console.error(`[Analytics] side ${s} load failed`, e);
-        setErr((er) => ({ ...er, [s]: "Could not load" }));
-      } finally {
-        setLoading((l) => ({ ...l, [s]: false }));
+        commitAlign({ ...alignRef.current, [s]: next });
+        applyAlign(s, next);
+        setNotice((n) => ({
+          ...n,
+          [s]: centred ? "Not aligned with other side — auto-centred" : "",
+        }));
+        fitToAll();
       }
+      if (failed)
+        setErr((er) => ({
+          ...er,
+          [s]:
+            (failed === items.length
+              ? "Could not load"
+              : `${failed} of ${items.length} failed`) + ` — ${reason}`,
+        }));
+      setLoading((l) => ({ ...l, [s]: false }));
     },
-    [uploadsByDate, updateClip, fitToAll, reassignPlanes],
+    // eslint-disable-next-line
+    [uploadsByDate, applyAlign, fitToAll],
   );
 
   // React to clip toggles: re-assign active planes + refresh constants.
   useEffect(() => {
     vOnRef.current = vOn;
     hOnRef.current = hOn;
-    reassignPlanes();
     updateClip();
-  }, [vOn, hOn, reassignPlanes, updateClip]);
+  }, [vOn, hOn, updateClip]);
 
   // ── Date / model selection ────────────────────────────────────────────────────
   const modelOptions = (dateStr) => {
     const u = uploadsByDate[dateStr];
     if (!u) return [];
     const opts = [];
+    const total = (u.bim?.length || 0) + (u.pc?.length || 0);
+    if (total > 1) opts.push({ value: "all", label: `All models (${total})` });
     (u.bim || []).forEach((it, i) =>
       opts.push({
         value: `bim:${i}`,
@@ -885,17 +972,25 @@ function CompareScene({ uploadsByDate, initialDate }) {
     if (sel) loadSide(s, dateStr, sel);
   };
 
-  // On first arriving here with a project/date already loaded in the Viewer
-  // (see PersistentWorkspace), auto-load the same date into Side A so this
-  // page shows those models instead of starting on a blank "Pick date"
-  // screen. Fires once only — later Viewer date changes don't retroactively
-  // overwrite a comparison the user has already set up here by hand.
+  // Once the upload dates arrive, fill both sides so the page never starts on
+  // a blank "Pick date" screen: Side A gets the date already open in the
+  // Viewer (see PersistentWorkspace) or else the second-latest date, and Side
+  // B the latest other date. Fires once only — later Viewer date changes
+  // don't retroactively overwrite a comparison set up here by hand.
   const autoPickedRef = useRef(false);
   useEffect(() => {
     if (autoPickedRef.current) return;
-    if (!initialDate || !uploadsByDate[initialDate]) return;
+    const dates = Object.keys(uploadsByDate).sort();
+    if (!dates.length) return;
     autoPickedRef.current = true;
-    onPickDate("A")(initialDate);
+    const a =
+      initialDate && uploadsByDate[initialDate]
+        ? initialDate
+        : dates[Math.max(0, dates.length - 2)];
+    const b = [...dates].reverse().find((d) => d !== a);
+    onPickDate("A")(a);
+    if (b) onPickDate("B")(b);
+    // eslint-disable-next-line
   }, [initialDate, uploadsByDate]);
 
   const onPickModel = (s) => (e) => {
@@ -906,18 +1001,16 @@ function CompareScene({ uploadsByDate, initialDate }) {
 
   // ── Align slider change ────────────────────────────────────────────────────────
   const setAlignField = (s, field, value) => {
-    setAlign((al) => {
-      const next = { ...al, [s]: { ...al[s], [field]: value } };
-      applyAlign(s, next[s]);
-      return next;
-    });
+    const al = alignRef.current;
+    const next = { ...al, [s]: { ...al[s], [field]: value } };
+    commitAlign(next);
+    applyAlign(s, next[s]);
   };
   const resetAlign = (s) => {
-    setAlign((al) => {
-      const next = { ...al, [s]: { ...DEFAULT_ALIGN } };
-      applyAlign(s, next[s]);
-      return next;
-    });
+    const next = { ...alignRef.current, [s]: { ...DEFAULT_ALIGN } };
+    commitAlign(next);
+    applyAlign(s, next[s]);
+    setNotice((n) => ({ ...n, [s]: "" }));
   };
 
   // ── Clip drag — 'v' (vertical line, X) or 'h' (horizontal line, Y) ─────────────
@@ -995,8 +1088,28 @@ function CompareScene({ uploadsByDate, initialDate }) {
             LOADING…
           </span>
         )}
+        {notice[s] && !loading[s] && !err[s] && (
+          <span
+            title="This side's model doesn't overlap the other side's, so it was moved onto it for comparison. Align the models in the Viewer and save, or press Reset in the Align panel to put it back."
+            style={{ color: "#d97706", fontSize: 10, fontWeight: 600 }}
+          >
+            ⓘ {notice[s]}
+          </span>
+        )}
         {err[s] && !loading[s] && (
-          <span style={{ color: "#ef4444", fontSize: 10 }}>⚠ {err[s]}</span>
+          <span
+            title={err[s]}
+            style={{
+              color: "#ef4444",
+              fontSize: 10,
+              maxWidth: 220,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ⚠ {err[s]}
+          </span>
         )}
         {calOpen === s && (
           <MonthCalendar
@@ -1161,6 +1274,20 @@ function CompareScene({ uploadsByDate, initialDate }) {
         <div style={overlayLabel("right", SIDE_ACCENT.B)}>
           B · {pick.B.date || "—"}
         </div>
+        {overlay && (
+          <div
+            style={{
+              ...overlayLabel("left", SIDE_ACCENT[overlay]),
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: SIDE_ACCENT[overlay],
+              color: "#fff",
+            }}
+          >
+            OVERLAY · {overlay} ({pick[overlay].date || "—"}) ghosted over{" "}
+            {overlay === "A" ? "B" : "A"} · drag handle back to split
+          </div>
+        )}
 
         {/* Vertical clip handle (drives the X clip plane) */}
         {vOn && (
@@ -1323,6 +1450,7 @@ function CompareScene({ uploadsByDate, initialDate }) {
       >
         Drag a handle to move the 3D clip plane · vertical {vpct}% / {100 - vpct}%
         {hOn ? ` · horizontal ${Math.round(hClip * 100)}%` : ""}
+        {" · drag a handle to the edge to overlay both dates"}
       </div>
     </div>
   );
@@ -1351,37 +1479,54 @@ export default function AnalyticsPage({
   routeParam: routeParamProp,
   initialDate,
 } = {}) {
-  // Same route-param format as the Viewer (`${id}_${name}`) — reuse its helper
-  // so Analytics resolves to the same project id, and therefore the same
-  // upload dates shown on Project → 3D Data.
   // Accepts routeParam as a prop (from PersistentWorkspace, which keeps this
   // page mounted across navigation to the Viewer/Progress) — falls back to
   // the route param so this still works if ever rendered directly by a
   // matched <Route>.
   const params = useParams();
   const routeParam = routeParamProp ?? params.slug;
-  const projectId = getProjectIdFromSlug(routeParam);
 
+  // The route param is usually a name-only slug ("a2b") with no id in it, so
+  // resolve it against the project list the same way the Viewer does —
+  // otherwise Analytics would end up with no project id and no upload dates.
+  const [projectId, setProjectId] = useState(() =>
+    getProjectIdFromSlug(routeParam),
+  );
   const [projectName, setProjectName] = useState("");
   const [uploadsByDate, setUploadsByDate] = useState({});
   const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState("");
   const role = localStorage.getItem("role") || "viewer";
   const [activePanel, setActivePanel] = useState(null);
 
   useEffect(() => {
-    if (!projectId) {
-      setProjectName("");
-      return;
-    }
+    setProjectId(getProjectIdFromSlug(routeParam));
+    setProjectName("");
+    if (!routeParam) return;
+    let cancelled = false;
     API.get("projects/")
       .then((res) => {
+        if (cancelled) return;
         const project = (res.data || []).find(
-          (p) => String(p.id) === String(projectId),
+          (p) =>
+            String(p.id) === String(routeParam) ||
+            p.slug === routeParam ||
+            createProjectSlug(p) === routeParam,
         );
-        if (project) setProjectName(project.project_name);
+        if (project) {
+          setProjectId(project.id);
+          setProjectName(project.project_name);
+        }
       })
-      .catch(() => {});
-  }, [projectId]);
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("[Analytics] could not fetch projects", e);
+        setFetchError("Could not load project");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [routeParam]);
 
   useEffect(() => {
     if (!projectId) {
@@ -1389,6 +1534,7 @@ export default function AnalyticsPage({
       return;
     }
     setFetching(true);
+    setFetchError("");
     Promise.all([
       API.get(`projects/${projectId}/bim/`),
       API.get(`projects/${projectId}/pointcloud/`),
@@ -1406,7 +1552,15 @@ export default function AnalyticsPage({
         merge(pcRes.data, "pc");
         setUploadsByDate(byDate);
       })
-      .catch(() => setUploadsByDate({}))
+      .catch((e) => {
+        console.error("[Analytics] could not fetch uploads", e);
+        setUploadsByDate({});
+        setFetchError(
+          e?.response?.status
+            ? `Could not load uploads (server returned ${e.response.status})`
+            : "Could not load uploads (server unreachable)",
+        );
+      })
       .finally(() => setFetching(false));
   }, [projectId]);
 
@@ -1507,7 +1661,7 @@ export default function AnalyticsPage({
           >
             <FolderOpen size={13} color="#6b7280" strokeWidth={1.8} />
             <span style={{ fontSize: 11, fontWeight: 700, color: "#374151" }}>
-              {projectName || `Project #${projectId}`}
+              {projectName || (projectId ? `Project #${projectId}` : routeParam)}
             </span>
             <span style={{ fontSize: 10, color: "#6b7280" }}>
               · Day-wise comparison (wipe between two dates)
@@ -1525,9 +1679,15 @@ export default function AnalyticsPage({
                 uploads
               </span>
             )}
-            {!fetching && projectId && uploadDateCount === 0 && (
+            {!fetching && fetchError && (
+              <span style={{ fontSize: 10, color: "#ef4444", fontWeight: 700 }}>
+                · ⚠ {fetchError}
+              </span>
+            )}
+            {!fetching && !fetchError && projectId && uploadDateCount === 0 && (
               <span style={{ fontSize: 10, color: "#9ca3af" }}>
-                · No uploads found
+                · No BIM / point cloud uploads in this project yet — add them
+                under Project → 3D Data
               </span>
             )}
           </div>
@@ -1535,6 +1695,7 @@ export default function AnalyticsPage({
           {/* Curtain comparison */}
           <div style={{ flex: 1, overflow: "hidden" }}>
             <CompareScene
+              key={projectId}
               uploadsByDate={uploadsByDate}
               initialDate={initialDate}
             />

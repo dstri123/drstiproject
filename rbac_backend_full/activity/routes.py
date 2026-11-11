@@ -120,8 +120,15 @@ ROUTES = [
     Route(POST, r"processing/alignment/pair/", "create", "BIM / point cloud alignment",
           project_key="project_id"),
     Route(POST, r"processing/align/icp/", "process", "ICP auto-alignment"),
+    Route(POST, r"processing/align/auto/", "process", "automatic BIM / point cloud alignment"),
     Route(POST, r"processing/gaussian/train/", "process", "Gaussian splat training"),
     Route(POST, r"processing/tools/pointcloud-to-pl(?:y|ay)/", "process", "point cloud to PLY conversion"),
+
+    # ── Issues ───────────────────────────────────────────────────────────────
+    Route(POST, r"issues/project/(?P<project_id>\d+)/", "create", "issue", name_key="title"),
+    Route(EDIT, r"issues/(?P<pk>\d+)/", "update", "issue", model="issues.Issue",
+          track=("title", "status", "priority", "assignee_id", "due_date")),
+    Route(DELETE, r"issues/(?P<pk>\d+)/", "delete", "issue", model="issues.Issue"),
 ]
 
 LOGIN_PATTERN = re.compile(r"auth/(?:custom-)?login/")

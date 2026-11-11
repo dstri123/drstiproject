@@ -775,6 +775,51 @@ class ICPAlignView(APIView):
 
         return Response(result)
 
+class AutoAlignView(APIView):
+    """
+    POST /api/v1/processing/align/auto/
+
+    One-click BIM <-> point-cloud registration with no manual picks:
+    voxel downsample -> FPFH features -> correspondences -> RANSAC -> ICP,
+    with an automatic scale search for unscaled (photogrammetry) clouds.
+    See processing/auto_registration.py.
+
+    Body (JSON):
+      {
+        "source": [[x,y,z], ...],        # point cloud points (world space)
+        "target": [[x,y,z], ...],        # BIM surface points (world space)
+        "init_transform": [[..4x4..]]    # optional, e.g. from picked pairs
+      }
+
+    Returns: { transform, fitness, coverage, rmse, scale, confidence,
+               ambiguous, candidates: [...], voxel_size, timing_s }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .auto_registration import auto_register
+
+        data = request.data or {}
+        source = data.get('source')
+        target = data.get('target')
+        if not source or not target:
+            return Response(
+                {'error': 'Both "source" and "target" point arrays are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result = auto_register(source, target,
+                                   init_transform=data.get('init_transform'))
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({'error': f'Auto alignment failed: {e}'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(result)
 
 # ─── OpenStreetMap tile proxy ─────────────────────────────────────────────────
 
@@ -865,19 +910,21 @@ class OSMTileProxyView(APIView):
 class ProgressAnalyzeView(APIView):
     """
     POST /api/v1/processing/progress/analyze/
-    Body: { bim_id, pointcloud_id, threshold? }
+    Body: { bim_id, pointcloud_id, threshold?, built_coverage? }
     Runs the Scan-to-BIM element progress analysis and returns per-element
-    completion + summary (does NOT save).
+    completion, automatic built detection, and per-floor / per-trade
+    rollups (does NOT save).
     """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from projects.models import BIMData, PointCloudData
-        from .progress import analyze, sanitize_result
+        from .progress import analyze, sanitize_result, BUILT_COVERAGE
 
         bim_id = request.data.get("bim_id")
         pc_id = request.data.get("pointcloud_id")
         threshold = float(request.data.get("threshold") or 0.15)
+        built_coverage = float(request.data.get("built_coverage") or BUILT_COVERAGE)
         if not bim_id or not pc_id:
             return Response({"error": "bim_id and pointcloud_id are required"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -918,10 +965,16 @@ class ProgressAnalyzeView(APIView):
         from .models import AlignmentPair
         pair = AlignmentPair.objects.filter(bim_id=bim_id, pointcloud_id=pc_id).first()
         overlap_snapshot = pair.overlap_snapshot if pair and pair.overlap_snapshot else None
+        # SAM labels only describe the points of the snapshot they came with.
+        semantic_snapshot = (
+            pair.semantic_snapshot if overlap_snapshot is not None and pair.semantic_snapshot else None
+        )
 
         try:
             result = analyze(bim_path, pc_path, bim.transform, pc.transform,
-                             threshold=threshold, overlap_snapshot=overlap_snapshot)
+                             threshold=threshold, overlap_snapshot=overlap_snapshot,
+                             semantic_snapshot=semantic_snapshot,
+                             built_coverage=built_coverage)
             # Ensure all numeric types are native Python types for JSON.
             result = sanitize_result(result)
 
@@ -936,6 +989,10 @@ class ProgressAnalyzeView(APIView):
                     f"Using overlap data sent from the viewer ({pair.overlap_element_count or len(overlap_snapshot)} elements) "
                     f"instead of server-side alignment."
                 )
+                if semantic_snapshot is not None:
+                    warnings.append(
+                        f"Built detection uses SAM photo labels for {len(semantic_snapshot)} elements."
+                    )
             elif point_count == 0:
                 warnings.append(
                     "Point cloud appears empty or could not be read — check file format and server-side file path."
@@ -949,6 +1006,14 @@ class ProgressAnalyzeView(APIView):
             traceback.print_exc()
             return Response({"error": f"Analysis failed: {e}"},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # SAM labels are single-use: they apply to the Analyze right after an
+        # "Auto-detect Built Elements" run. Later analyses go back to plain
+        # overlap until the user runs the detection again.
+        if semantic_snapshot is not None:
+            pair.semantic_snapshot = None
+            pair.semantic_snapshot_at = None
+            pair.save(update_fields=["semantic_snapshot", "semantic_snapshot_at"])
 
         result["warnings"] = warnings
         result["bim"] = {"id": bim.id, "date": bim.date, "description": bim.description}
@@ -1033,12 +1098,15 @@ class ProgressSaveView(APIView):
                 element_type=e.get("element_type", ""),
                 category=e.get("category", ""),
                 level=(e.get("level") or "")[:255],
+                level_elevation=e.get("level_elevation"),
                 name=e.get("name", ""),
                 bim_volume=e.get("bim_volume", 0.0),
                 bim_points=e.get("bim_points", 0),
                 overlap_points=e.get("overlap_points", 0),
                 completion=e.get("completion", 0.0),
                 status=e.get("status", "not_started"),
+                built_by=(e.get("built_by") or "")[:20],
+                sam_built_ratio=e.get("sam_built_ratio"),
             )
             for e in elements
         ]
@@ -1095,7 +1163,7 @@ class ProgressPairAssessmentView(APIView):
 
     def get(self, request, pair_id):
         from .models import ProgressAssessment, ProgressElement
-        from .progress import _by_category, count_completion
+        from .progress import _by_category, by_level, by_trade, count_completion
 
         assessment = (
             ProgressAssessment.objects.filter(alignment_pair_id=pair_id)
@@ -1110,12 +1178,15 @@ class ProgressPairAssessmentView(APIView):
             "element_type": e.element_type,
             "category": e.category,
             "level": e.level,
+            "level_elevation": e.level_elevation,
             "name": e.name,
             "bim_volume": e.bim_volume,
             "bim_points": e.bim_points,
             "overlap_points": e.overlap_points,
             "completion": e.completion,
             "status": e.status,
+            "built_by": e.built_by,
+            "sam_built_ratio": e.sam_built_ratio,
         } for e in ProgressElement.objects.filter(assessment=assessment)]
 
         summary = {
@@ -1135,6 +1206,8 @@ class ProgressPairAssessmentView(APIView):
             "elements": elements,
             "summary": summary,
             "categories": _by_category(elements),
+            "levels": by_level(elements),
+            "trades": by_trade(elements),
             "warnings": [],
         })
 
@@ -1229,6 +1302,10 @@ class OverlapSnapshotSaveView(APIView):
                 "overlap_element_count": d.get("overlap_element_count"),
                 "overlap_snapshot": overlap_map,
                 "overlap_snapshot_at": timezone.now(),
+                # Labels from an earlier SAM run belong to a different
+                # snapshot/alignment.
+                "semantic_snapshot": None,
+                "semantic_snapshot_at": None,
             },
         )
         return Response({
@@ -1236,6 +1313,81 @@ class OverlapSnapshotSaveView(APIView):
             "pair_id": pair.id,
             "created": created,
             "elements_with_overlap": len(overlap_map),
+        })
+
+
+class SemanticSnapshotSaveView(APIView):
+    """
+    POST /api/v1/processing/progress/sam-snapshot/
+    Saves the viewer's "Auto-detect Built Elements" run: per-element overlap
+    point counts (stored as the pair's overlap snapshot) plus the SAM labels
+    of those points, keyed by IFC expressID. Progress Assessment's Analyze
+    then removes clutter points and marks elements built automatically.
+    Body: { project_id, bim_id, pointcloud_id, bim_element_count,
+            cameras_used, elements: {express_id: {points, built, partial, clutter}} }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.utils import timezone
+        from projects.models import Project, BIMData, PointCloudData
+        from .models import AlignmentPair
+
+        d = request.data or {}
+        try:
+            project = Project.objects.get(id=d.get("project_id"))
+            bim = BIMData.objects.get(id=d.get("bim_id"), project=project)
+            pc = PointCloudData.objects.get(id=d.get("pointcloud_id"), project=project)
+        except (Project.DoesNotExist, BIMData.DoesNotExist,
+                PointCloudData.DoesNotExist):
+            return Response({"error": "project/bim/pointcloud not found"},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        overlap_map, label_map = {}, {}
+        try:
+            for eid, row in (d.get("elements") or {}).items():
+                points = int(row.get("points") or 0)
+                if points <= 0:
+                    continue
+                overlap_map[str(eid)] = points
+                label_map[str(eid)] = {
+                    k: int(row.get(k) or 0) for k in ("built", "partial", "clutter")
+                }
+        except (AttributeError, TypeError, ValueError):
+            return Response(
+                {"error": "elements must map expressID -> {points, built, partial, clutter}"},
+                status=status.HTTP_400_BAD_REQUEST)
+        if not overlap_map:
+            return Response({"error": "No overlapping elements in the detection result."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        pair, created = AlignmentPair.objects.update_or_create(
+            bim=bim, pointcloud=pc,
+            defaults={
+                "project": project,
+                "bim_date": bim.date,
+                "pointcloud_date": pc.date,
+                "bim_element_count": d.get("bim_element_count"),
+                "overlap_element_count": len(overlap_map),
+                "overlap_snapshot": overlap_map,
+                "overlap_snapshot_at": now,
+                "semantic_snapshot": label_map,
+                "semantic_snapshot_at": now,
+            },
+        )
+        _audit(request, "process_done",
+               f"SAM built detection: {len(overlap_map)} elements, "
+               f"{d.get('cameras_used') or 0} photos",
+               bim_data=bim, point_data=pc)
+        return Response({
+            "message": "SAM detection saved",
+            "pair_id": pair.id,
+            "created": created,
+            "elements_with_overlap": len(overlap_map),
+            "elements_with_labels": sum(
+                1 for v in label_map.values() if sum(v.values()) > 0
+            ),
         })
 
 
@@ -1406,4 +1558,65 @@ class ScheduleProgressView(APIView):
             "ifc_levels": ifc_levels,
             "level_map": (meta or {}).get("level_map") or {},
             "activities": activities,
+        })
+
+
+class Schedule4DView(APIView):
+    """
+    GET /api/v1/processing/progress/schedule-4d/<project_id>/?bim=<bim_id>
+    Links every element of an IFC model to the schedule activity it belongs
+    to (same matching rules as schedule-status), keyed by express ID so the
+    browser can colour the web-ifc mesh directly. Also returns each element's
+    measured status from the latest Progress Assessment, if any. Without
+    ?bim= the latest IFC upload is used.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, project_id):
+        from projects.models import ProjectSchedule
+        from .models import ProgressAssessment, ProgressElement
+        from .schedule_progress import element_index, link_elements
+
+        schedule = ProjectSchedule.objects.filter(project_id=project_id).first()
+        if not schedule:
+            return Response({"error": "This project has no schedule."}, status=404)
+
+        bims = BIMData.objects.filter(project_id=project_id).order_by("-is_latest", "-date", "-id")
+        bim_id = request.query_params.get("bim")
+        if bim_id:
+            bims = bims.filter(id=bim_id)
+        bim = next((b for b in bims if b.file.name.lower().endswith(".ifc")), None)
+        if not bim:
+            return Response({"error": "No IFC model found for this project."}, status=404)
+
+        try:
+            elements = element_index(bim.file.path)
+        except Exception as e:
+            return Response({"error": f"Couldn't read the IFC model: {e}"}, status=500)
+        links = link_elements(schedule.activities, schedule.meta, elements)
+
+        # Measured status per element from the latest assessment, matched by
+        # GlobalId so it carries across re-uploads of the same model.
+        actual, scan_date = {}, None
+        latest = (
+            ProgressAssessment.objects.filter(project_id=project_id)
+            .order_by("-pointcloud_date", "-created_at")
+            .first()
+        )
+        if latest:
+            scan_date = (latest.pointcloud_date or latest.created_at.date()).isoformat()
+            by_gid = {e["element_id"]: e["express_id"] for e in elements}
+            for gid, st in ProgressElement.objects.filter(assessment=latest).values_list(
+                "element_id", "status"
+            ):
+                if gid in by_gid:
+                    actual[by_gid[gid]] = st
+
+        return Response({
+            "bim": {"id": bim.id, "date": bim.date, "file": bim.file.name},
+            "element_count": len(elements),
+            "linked_count": len(links),
+            "elements": links,
+            "actual": actual,
+            "scan_date": scan_date,
         })

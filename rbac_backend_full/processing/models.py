@@ -291,12 +291,19 @@ class ProgressElement(models.Model):
     element_type = models.CharField(max_length=80)  # e.g. IFCDOOR
     category = models.CharField(max_length=40, blank=True)
     level = models.CharField(max_length=255, blank=True)  # IfcBuildingStorey name
+    level_elevation = models.FloatField(null=True, blank=True)  # orders floors bottom-up
     name = models.CharField(max_length=255, blank=True)
     bim_volume = models.FloatField(default=0.0)       # m^3
     bim_points = models.IntegerField(default=0)       # max possible PC points (from volume)
     overlap_points = models.IntegerField(default=0)   # actual overlapping PC points
     completion = models.FloatField(default=0.0)      # 0..100
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='not_started')
+    # Automatic built detection (see progress.detect_built): which evidence
+    # marked the element built — "sam", "plane" or "coverage" — or "" if not.
+    built_by = models.CharField(max_length=20, blank=True)
+    # Share of SAM-labelled overlapping points that are permanent material
+    # (concrete / structure); null when no SAM labels reached this element.
+    sam_built_ratio = models.FloatField(null=True, blank=True)
 
     def __str__(self):
         return f'{self.element_type} {self.element_id} — {self.completion:.0f}%'
@@ -345,6 +352,14 @@ class AlignmentPair(models.Model):
     overlap_element_count = models.IntegerField(null=True, blank=True)
     overlap_snapshot = models.JSONField(null=True, blank=True)  # {express_id(str): count}
     overlap_snapshot_at = models.DateTimeField(null=True, blank=True)
+
+    # SAM labels for those same overlapping points, from the viewer's
+    # "Auto-detect Built Elements" (photo masks projected onto the cloud):
+    # {express_id(str): {"built": n, "partial": n, "clutter": n}}. Only valid
+    # alongside the overlap_snapshot it was sent with, so a plain overlap
+    # snapshot clears it.
+    semantic_snapshot = models.JSONField(null=True, blank=True)
+    semantic_snapshot_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-updated_at"]

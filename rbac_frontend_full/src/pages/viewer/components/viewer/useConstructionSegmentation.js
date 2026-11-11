@@ -227,6 +227,20 @@ function normalizeResult(apiData) {
   };
 }
 
+// ── One-shot segmentation (no React state) ───────────────────────────────────
+/**
+ * Segment one image URL and return the normalized result — for batch callers
+ * (e.g. useSAMProgressDetection) that run many photos and track progress
+ * themselves.
+ */
+export async function segmentUrlOnce(
+  imageUrl,
+  { serviceUrl = DEFAULT_OPTIONS.serviceUrl, signal } = {},
+) {
+  const base64 = await urlToBase64(imageUrl);
+  return normalizeResult(await callSegmentationApi(serviceUrl, base64, signal));
+}
+
 // ── Main hook ─────────────────────────────────────────────────────────────────
 /**
  * @param {Partial<typeof DEFAULT_OPTIONS>} options

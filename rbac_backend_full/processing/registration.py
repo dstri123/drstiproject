@@ -14,16 +14,20 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
-def _best_fit_transform(src, dst, with_scale=False):
+def _best_fit_transform(src, dst, with_scale=False, yaw_only=False):
     """Least-squares rigid (or similarity) transform mapping src → dst.
 
     src, dst: (N, 3) arrays of corresponding points.
+    yaw_only: rotate about +Y only (both sets already levelled, Y-up).
     Returns a 4x4 numpy matrix. Uses the Kabsch/Umeyama solution.
     """
     src_mean = src.mean(axis=0)
     dst_mean = dst.mean(axis=0)
     src_c = src - src_mean
     dst_c = dst - dst_mean
+
+    if yaw_only:
+        return _best_fit_yaw(src_c, dst_c, src_mean, dst_mean, with_scale)
 
     H = src_c.T @ dst_c
     U, S, Vt = np.linalg.svd(H)
@@ -32,8 +36,9 @@ def _best_fit_transform(src, dst, with_scale=False):
     R = Vt.T @ D @ U.T
 
     if with_scale:
-        var_src = (src_c ** 2).sum() / src.shape[0]
-        scale = (S * np.array([1.0, 1.0, d])).sum() / (var_src * 3.0) if var_src > 0 else 1.0
+        # Umeyama: H is not divided by N, so neither is the source variance.
+        var_src = (src_c ** 2).sum()
+        scale = (S * np.array([1.0, 1.0, d])).sum() / var_src if var_src > 0 else 1.0
     else:
         scale = 1.0
 
@@ -42,6 +47,24 @@ def _best_fit_transform(src, dst, with_scale=False):
     T = np.eye(4)
     T[:3, :3] = scale * R
     T[:3, 3] = t
+    return T
+
+
+def _best_fit_yaw(src_c, dst_c, src_mean, dst_mean, with_scale):
+    """Closed-form best rotation about +Y (plus optional scale) for centred sets."""
+    a = (dst_c[:, 0] * src_c[:, 0] + dst_c[:, 2] * src_c[:, 2]).sum()
+    b = (dst_c[:, 0] * src_c[:, 2] - dst_c[:, 2] * src_c[:, 0]).sum()
+    theta = np.arctan2(b, a)
+    c, s = np.cos(theta), np.sin(theta)
+    R = np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
+    scale = 1.0
+    if with_scale:
+        var_src = (src_c ** 2).sum()
+        if var_src > 0:
+            scale = float((dst_c * (src_c @ R.T)).sum() / var_src)
+    T = np.eye(4)
+    T[:3, :3] = scale * R
+    T[:3, 3] = dst_mean - scale * (R @ src_mean)
     return T
 
 
@@ -119,6 +142,8 @@ def run_icp(
     threshold=None,
     tolerance=1e-6,
     with_scale=False,
+    target_tree=None,
+    yaw_only=False,
 ):
     """Refine the alignment of `source` onto `target` with ICP.
 
@@ -128,6 +153,8 @@ def run_icp(
                Defaults to ~3% of the target's bounding-box diagonal.
     Returns dict: { transform (4x4 list), fitness, rmse, iterations }.
     `transform` already includes init_transform — apply it directly to source.
+    target_tree: optional prebuilt cKDTree over `target`, for repeated calls.
+    yaw_only: restrict each update to a rotation about +Y (levelled inputs).
     """
     source = np.asarray(source, dtype=np.float64)
     target = np.asarray(target, dtype=np.float64)
@@ -140,7 +167,7 @@ def run_icp(
 
     T = np.eye(4) if init_transform is None else np.asarray(init_transform, dtype=np.float64)
 
-    tree = cKDTree(target)
+    tree = target_tree if target_tree is not None else cKDTree(target)
     src_h = np.hstack([source, np.ones((source.shape[0], 1))])
 
     prev_rmse = np.inf
@@ -149,7 +176,7 @@ def run_icp(
     it = 0
     for it in range(1, max_iterations + 1):
         moved = (src_h @ T.T)[:, :3]
-        dists, idx = tree.query(moved, k=1)
+        dists, idx = tree.query(moved, k=1, workers=-1)
 
         mask = dists <= threshold
         matched = int(mask.sum())
@@ -160,7 +187,8 @@ def run_icp(
         corr_src = moved[mask]
         corr_dst = target[idx[mask]]
 
-        delta = _best_fit_transform(corr_src, corr_dst, with_scale=with_scale)
+        delta = _best_fit_transform(corr_src, corr_dst, with_scale=with_scale,
+                                    yaw_only=yaw_only)
         T = delta @ T
 
         rmse = float(np.sqrt((dists[mask] ** 2).mean()))

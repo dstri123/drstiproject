@@ -1,6 +1,7 @@
 import React, { useRef, useState, useMemo, useEffect } from "react";
 import { X, Eye, EyeOff, Trash2 } from "lucide-react";
 import ElementMetadata from "../components/metadata/ElementMetadata";
+import IssuesPanel from "../issues/IssuesPanel";
 import { useToast } from "../../../components/ToastContainer";
 // ─── Spinner keyframes (injected once) ────────────────────────────────────────
 // ─── Overlap pill text — force visibility (scoped !important defeats any
@@ -30,6 +31,7 @@ const PANEL_LABELS = {
   picking: "Picking",
   alignment: "Alignment",
   cameras: "Cameras",
+  issues: "Issues",
 };
 
 export default function ContextPanel(props) {
@@ -71,6 +73,10 @@ export default function ContextPanel(props) {
     isSemanticActive,
     isSamRunning,
     samProgress,
+    onAutoDetectBuilt,
+    isBuiltDetecting,
+    builtDetectProgress,
+    issuesPanelProps,
     manualCameras,
     onDeleteManualCamera,
     onToggleManualCamera,
@@ -85,6 +91,13 @@ export default function ContextPanel(props) {
   const [activeMode, setActiveMode] = useState(null);
   // Import/Apply Matrix is an advanced/interop feature — collapsed by default.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Published by useAlignment (window event) — busy flag + current result.
+  const [autoAlign, setAutoAlign] = useState(() => window.autoAlignState || {});
+  useEffect(() => {
+    const onChange = (e) => setAutoAlign(e.detail || {});
+    window.addEventListener("autoalign-state", onChange);
+    return () => window.removeEventListener("autoalign-state", onChange);
+  }, []);
 
   const handleMode = (mode) => {
     setActiveMode(mode);
@@ -143,6 +156,9 @@ export default function ContextPanel(props) {
   }, [selectedElement, overlapCounts]);
 
   const panels = {
+    // ── ISSUES ────────────────────────────────────────────────────────────────
+    issues: issuesPanelProps ? <IssuesPanel {...issuesPanelProps} /> : null,
+
     // ── UPLOAD ────────────────────────────────────────────────────────────────
     upload: (
       <div>
@@ -295,6 +311,33 @@ export default function ContextPanel(props) {
                 "Show Construction Segments (SAM)"
               )}
             </button>
+
+            {/* SAM photo labels × BIM overlap → elements marked built
+                automatically in Progress Assessment. */}
+            {bimFile && (
+              <button
+                onClick={() => onAutoDetectBuilt?.()}
+                disabled={!onAutoDetectBuilt || isBuiltDetecting}
+                title="Runs SAM on the posed site photos, projects the masks onto the point cloud and sends per-element built evidence to Progress Assessment"
+                style={{
+                  ...btn,
+                  background: "#eef2ff",
+                  borderColor: "#c7d2fe",
+                  color: "#3730a3",
+                  cursor: isBuiltDetecting ? "not-allowed" : "pointer",
+                  opacity: isBuiltDetecting ? 0.65 : 1,
+                  marginTop: 6,
+                }}
+              >
+                {isBuiltDetecting ? (
+                  <>
+                    <Spinner /> {builtDetectProgress || "Detecting…"}
+                  </>
+                ) : (
+                  "Auto-detect Built Elements (SAM)"
+                )}
+              </button>
+            )}
           </>
         )}
 
@@ -593,6 +636,66 @@ export default function ContextPanel(props) {
     // ── ALIGNMENT ─────────────────────────────────────────────────────────────
     alignment: (
       <div>
+        <SectionLabel text="Automatic Alignment" />
+        <ToolBtn
+          label={autoAlign.busy ? "Aligning…" : "Auto Align"}
+          disabled={autoAlign.busy}
+          inactiveBg="var(--tool-bim)"
+          inactiveColor="#fff"
+          inactiveBorder="var(--tool-bim)"
+          onClick={() => {
+            window.setPickingMode?.(null);
+            setActiveMode(null);
+            if (window.autoAlign) window.autoAlign();
+            else info("Open a project with a BIM + Point Cloud first.");
+          }}
+        />
+        {autoAlign.count > 0 && !autoAlign.busy && (
+          <>
+            <div
+              style={{ fontSize: 10, color: "#6b7280", margin: "2px 0 6px" }}
+            >
+              Result {autoAlign.index + 1} of {autoAlign.count} ·{" "}
+              {autoAlign.fitText}
+              {autoAlign.confidence && ` · ${autoAlign.confidence} confidence`}
+              {autoAlign.scale &&
+                Math.abs(autoAlign.scale - 1) > 0.01 &&
+                ` · scale ×${autoAlign.scale.toFixed(2)}`}
+            </div>
+            {autoAlign.count > 1 && (
+              <ToolBtn
+                label="Try Next Result"
+                inactiveBg="var(--tool-warn-soft)"
+                inactiveColor="var(--tool-warn)"
+                inactiveBorder="var(--tool-warn-border)"
+                onClick={() => window.tryNextAutoAlign?.()}
+              />
+            )}
+            <ToolBtn
+              label="Undo Auto Align"
+              inactiveBg="var(--tool-danger-soft)"
+              inactiveColor="var(--tool-danger)"
+              inactiveBorder="var(--tool-danger-border)"
+              onClick={() => window.undoAutoAlign?.()}
+            />
+            <ToolBtn
+              label="Save Alignment Pair"
+              inactiveBg="var(--tool-export-soft)"
+              inactiveColor="var(--tool-export)"
+              inactiveBorder="var(--tool-export-border)"
+              onClick={() => {
+                if (window.saveAlignmentPair) {
+                  info("Saving alignment pair…");
+                  window.saveAlignmentPair();
+                } else {
+                  info("Open a project with a BIM + Point Cloud first.");
+                }
+              }}
+            />
+          </>
+        )}
+
+        <div style={divider} />
         <SectionLabel text="Matrix Operations" />
         <ToolBtn
           label="Generate Matrix"
@@ -915,6 +1018,7 @@ function ToolBtn({
   inactiveColor,
   inactiveBorder,
   onClick,
+  disabled = false,
 }) {
   const bg = active ? activeBg || "#2563eb" : inactiveBg || "#f3f4f6";
   const color = active ? activeColor || "#ffffff" : inactiveColor || "#374151";
@@ -923,12 +1027,19 @@ function ToolBtn({
   return (
     <button
       onClick={onClick}
-      style={{ ...btn, background: bg, borderColor: border, color }}
+      disabled={disabled}
+      style={{
+        ...btn,
+        background: bg,
+        borderColor: border,
+        color,
+        ...(disabled && { opacity: 0.6, cursor: "wait" }),
+      }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.opacity = "0.88";
+        if (!disabled) e.currentTarget.style.opacity = "0.88";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.opacity = "1";
+        if (!disabled) e.currentTarget.style.opacity = "1";
       }}
     >
       {label}
@@ -1002,7 +1113,10 @@ function CategoryDropdown({
   // user opens it, so the panel doesn't jump around on every pick.
   useEffect(() => {
     if (highlightName && headerRef.current) {
-      headerRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      headerRef.current.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
     }
   }, [highlightName]);
 
@@ -1062,7 +1176,9 @@ function CategoryDropdown({
           >
             {names.length}
           </span>
-          <span style={{ fontSize: 9, color: isActive ? "#3b82f6" : "#9ca3af" }}>
+          <span
+            style={{ fontSize: 9, color: isActive ? "#3b82f6" : "#9ca3af" }}
+          >
             {open ? "▾" : "▸"}
           </span>
         </span>
