@@ -16,12 +16,14 @@ import {
   X,
   ChevronsDownUp,
   ChevronsUpDown,
+  Box,
 } from "lucide-react";
 import API from "../../api/axios";
 import Header from "../viewer/layout/Header";
 import { useToast } from "../../components/ToastContainer";
 import { parseScheduleFile, parseDay, workdaysBetween } from "./scheduleParser";
 import GanttChart, { fmtRange } from "./GanttChart";
+import Schedule4DView from "./Schedule4DView";
 
 const DAY_MS = 86400000;
 
@@ -394,6 +396,12 @@ export default function ProjectDashboardPage() {
     );
   }, [activities, search, levelFilter, statusFilter, progressFilter]);
 
+  // For the 4D view: null = no filter active (every activity shown).
+  const visibleIds = useMemo(
+    () => (filtered.length === activities.length ? null : new Set(filtered.map((a) => a.id))),
+    [filtered, activities],
+  );
+
   // Groups (one per Level) keep the schedule's order and a stable colour.
   const groups = useMemo(() => {
     const map = new Map();
@@ -581,6 +589,7 @@ export default function ProjectDashboardPage() {
                 {[
                   { key: "table", label: "Main Table", icon: Table2 },
                   { key: "gantt", label: "Gantt", icon: ChartGantt },
+                  { key: "4d", label: "4D Model", icon: Box },
                 ].map((t) => (
                   <button
                     key={t.key}
@@ -828,7 +837,20 @@ export default function ProjectDashboardPage() {
                   minHeight: 0,
                 }}
               >
-                {filtered.length === 0 ? (
+                {view === "4d" ? (
+                  // Stays up even when filters match nothing — it just ghosts
+                  // every element — so the loaded model isn't thrown away.
+                  <Schedule4DView
+                    projectId={projectId}
+                    activities={activities}
+                    visibleIds={visibleIds}
+                    selectedId={selectedId}
+                    onSelect={setSelectedId}
+                    scheduleStart={range.scheduleStart}
+                    scheduleFinish={range.scheduleFinish}
+                    today={today}
+                  />
+                ) : filtered.length === 0 ? (
                   <div style={{ margin: "auto", color: "#94a3b8", fontSize: 13 }}>No activities match the current filters.</div>
                 ) : view === "gantt" ? (
                   <GanttChart

@@ -34,6 +34,9 @@ urlpatterns = [
 
     # 🧾 Activity Log
     path('api/v1/activity/', include('activity.urls')),
+
+    # 📍 Issues pinned in 3D (BCF export)
+    path('api/v1/issues/', include('issues.urls')),
 ]
 
 urlpatterns += static(

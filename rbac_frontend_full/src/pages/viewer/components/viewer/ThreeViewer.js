@@ -21,6 +21,8 @@ import usePicking from "./usePicking";
 import useAlignment from "./useAlignment";
 import useOverlap from "./useOverlap";
 import usePointCloudSAMSegmentation from "./usePointCloudSAMSegmentation";
+import useSAMProgressDetection from "./useSAMProgressDetection";
+import useIssuePins from "./useIssuePins";
 import useGaussianSplatting from "./useGaussianSplatting";
 import useCameraSystem from "./useCameraSystem";
 import CameraPreviewPanel from "./CameraPreviewPanel";
@@ -1251,6 +1253,19 @@ function ThreeViewer({
     allCameras,
   );
 
+  // ── Issues pinned in 3D ──────────────────────────────────────────────────
+  useIssuePins(sceneData, modelData, {
+    issues: props.issues,
+    pinMode: props.issuePinMode,
+    selectedIssueId: props.selectedIssueId,
+    onPick: props.onIssuePick,
+    onSelect: props.onIssueSelect,
+    onCancel: props.onCancelIssuePin,
+  });
+
+  // ── Auto-detect built BIM elements (SAM photo labels × overlap) ──────────
+  const builtDetection = useSAMProgressDetection(modelData, allCameras);
+
   useEffect(() => {
     onModelDataChange?.({
       toggleSemanticSegmentation: samData.toggleSemanticSegmentation,
@@ -1258,6 +1273,9 @@ function ThreeViewer({
       isSamRunning: samData.isRunning,
       samProgress: samData.progress,
       semanticSummary: samData.semanticSummary,
+      runBuiltDetection: builtDetection.runDetection,
+      isBuiltDetecting: builtDetection.isDetecting,
+      builtDetectProgress: builtDetection.progress,
       toggleGaussianSplatting: gaussianData.toggleGaussianSplatting,
       isGaussianVisible: gaussianData.isGaussianVisible,
       isGaussianLoading: gaussianData.isGaussianLoading,
@@ -1270,6 +1288,9 @@ function ThreeViewer({
     samData.isRunning,
     samData.progress,
     samData.semanticSummary,
+    builtDetection.runDetection,
+    builtDetection.isDetecting,
+    builtDetection.progress,
     gaussianData.toggleGaussianSplatting,
     gaussianData.isGaussianVisible,
     gaussianData.isGaussianLoading,

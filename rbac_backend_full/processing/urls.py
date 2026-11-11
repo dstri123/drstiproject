@@ -9,6 +9,7 @@ from .views import (
     AuditLogView,
     PointCloudToPLYView,
     ICPAlignView,
+    AutoAlignView,
     OSMTileProxyView,
     ProgressAnalyzeView,
     ProgressSaveView,
@@ -18,8 +19,10 @@ from .views import (
     AlignmentPairView,
     AlignmentPairListView,
     OverlapSnapshotSaveView,
+    SemanticSnapshotSaveView,
     GaussianSplatTrainingView,
     ScheduleProgressView,
+    Schedule4DView,
 
 )
 
@@ -50,6 +53,8 @@ urlpatterns = [
 
     # Dense ICP point-cloud alignment (numpy/scipy)
     path('align/icp/',          ICPAlignView.as_view(),         name='processing-align-icp'),
+# One-click automatic registration (FPFH + RANSAC + ICP, scale search)
+    path('align/auto/',         AutoAlignView.as_view(),        name='processing-align-auto'),
 
     # OpenStreetMap tile proxy (adds CORP header so tiles load under COEP)
     path('osm-tile/<int:z>/<int:x>/<int:y>.png', OSMTileProxyView.as_view(),
@@ -64,6 +69,8 @@ urlpatterns = [
          name='progress-pair-latest'),
     path('progress/schedule-status/<int:project_id>/', ScheduleProgressView.as_view(),
          name='progress-schedule-status'),
+    path('progress/schedule-4d/<int:project_id>/', Schedule4DView.as_view(),
+         name='progress-schedule-4d'),
     path('progress/timeline/<int:project_id>/', ProgressTimelineView.as_view(),
          name='progress-timeline'),
 
@@ -75,5 +82,8 @@ urlpatterns = [
     # Viewer's live voxel-hash overlap snapshot, for Progress Assessment
     path('progress/overlap-snapshot/', OverlapSnapshotSaveView.as_view(),
          name='progress-overlap-snapshot'),
+    # Viewer's SAM-labelled overlap ("Auto-detect Built Elements")
+    path('progress/sam-snapshot/', SemanticSnapshotSaveView.as_view(),
+         name='progress-sam-snapshot'),
          path('gaussian/train/', GaussianSplatTrainingView.as_view(), name='processing-gaussian-train'),
 ]

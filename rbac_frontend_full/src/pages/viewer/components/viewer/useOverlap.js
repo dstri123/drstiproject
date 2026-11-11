@@ -4,12 +4,97 @@ import { getSafeIfcType } from "./useModelLoader";
 
 // Voxel cell size in metres — also the overlap tolerance. A point counts as
 // "overlapping" if it falls in the same cell as some BIM surface vertex.
-const VOXEL = 0.15;
+export const VOXEL = 0.15;
 
-const cellKey = (v) =>
+export const cellKey = (v) =>
   `${Math.floor(v.x / VOXEL)},${Math.floor(v.y / VOXEL)},${Math.floor(v.z / VOXEL)}`;
 
 const matrixSig = (obj) => (obj ? obj.matrixWorld.elements.join(",") : "");
+
+/**
+ * Voxel hash of a BIM model's surface in world space: the set of occupied
+ * cells, cell → element indices, and per-element name / mesh uuid /
+ * expressID. Shared with useSAMProgressDetection so both use the exact same
+ * overlap test.
+ */
+export function buildBimVoxels(bimModel) {
+  bimModel.updateMatrixWorld(true);
+  const occupied = new Set();
+  const voxelToElems = new Map();
+  const elemNames = [];
+  const elemUuids = [];
+  const elemIds = [];
+  const elemExpressIdToIndex = new Map();
+  let elemIndex = 0;
+  let isIfc = false;
+  const v = new THREE.Vector3();
+
+  bimModel.traverse((c) => {
+    if (!c.isMesh || !c.geometry?.attributes?.position) return;
+    const geom = c.geometry;
+    const expressIDAttr = geom.attributes?.expressID;
+    const indexArray = geom.index?.array;
+    const pos = geom.attributes.position;
+
+    if (expressIDAttr) {
+      isIfc = true;
+    }
+
+    c.updateMatrixWorld(true);
+    const m = c.matrixWorld;
+    const stride = Math.max(1, Math.floor(pos.count / 150000));
+
+    for (let vi = 0; vi < pos.count; vi += stride) {
+      const vertexIndex = indexArray ? indexArray[vi] : vi;
+      v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m);
+      const key = cellKey(v);
+      occupied.add(key);
+
+      let elemIdx = null;
+      if (expressIDAttr) {
+        const expressID = expressIDAttr.array[vertexIndex];
+        if (expressID == null) continue;
+        elemIdx = elemExpressIdToIndex.get(expressID);
+        if (elemIdx == null) {
+          elemIdx = elemIndex++;
+          elemExpressIdToIndex.set(expressID, elemIdx);
+          const ifcType = getSafeIfcType(c, expressID);
+          elemNames[elemIdx] =
+            (ifcType ? `${ifcType} #${expressID}` : `IFC #${expressID}`) ||
+            `Element ${elemIdx + 1}`;
+          elemIds[elemIdx] = expressID;
+          elemUuids[elemIdx] = c.uuid;
+        }
+      } else {
+        if (typeof c.userData?.elementIndex === "number") {
+          elemIdx = c.userData.elementIndex;
+        } else {
+          elemIdx = elemIndex++;
+          const cName = typeof c.name === "string" ? c.name.trim() : "";
+          const parentName =
+            typeof c.parent?.name === "string" ? c.parent.name.trim() : "";
+          const userDataName =
+            typeof c.userData?.elementName === "string"
+              ? c.userData.elementName.trim()
+              : "";
+          elemNames[elemIdx] =
+            cName || parentName || userDataName || `Element ${elemIdx + 1}`;
+          elemIds[elemIdx] = null;
+          elemUuids[elemIdx] = c.uuid;
+        }
+      }
+
+      let arr = voxelToElems.get(key);
+      if (!arr) {
+        arr = [];
+        voxelToElems.set(key, arr);
+      }
+      if (arr[arr.length - 1] !== elemIdx) arr.push(elemIdx);
+    }
+  });
+
+  return { occupied, voxelToElems, elemNames, elemUuids, elemIds, isIfc };
+}
 
 /**
  * Efficient overlap highlight.
@@ -63,89 +148,7 @@ export default function useOverlap(sceneData, modelData, props) {
     if (bimCacheRef.current.sig === sig && bimCacheRef.current.occupied) {
       return bimCacheRef.current;
     }
-    const occupied = new Set();
-    const voxelToElems = new Map();
-    const elemNames = [];
-    const elemUuids = [];
-    const elemIds = [];
-    const elemExpressIdToIndex = new Map();
-    let elemIndex = 0;
-    let isIfc = false;
-    const v = new THREE.Vector3();
-
-    bimModel.traverse((c) => {
-      if (!c.isMesh || !c.geometry?.attributes?.position) return;
-      const geom = c.geometry;
-      const expressIDAttr = geom.attributes?.expressID;
-      const indexArray = geom.index?.array;
-      const pos = geom.attributes.position;
-
-      if (expressIDAttr) {
-        isIfc = true;
-      }
-
-      c.updateMatrixWorld(true);
-      const m = c.matrixWorld;
-      const stride = Math.max(1, Math.floor(pos.count / 150000));
-
-      for (let vi = 0; vi < pos.count; vi += stride) {
-        const vertexIndex = indexArray ? indexArray[vi] : vi;
-        v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m);
-        const key = cellKey(v);
-        occupied.add(key);
-
-        let elemIdx = null;
-        if (expressIDAttr) {
-          const expressID = expressIDAttr.array[vertexIndex];
-          if (expressID == null) continue;
-          elemIdx = elemExpressIdToIndex.get(expressID);
-          if (elemIdx == null) {
-            elemIdx = elemIndex++;
-            elemExpressIdToIndex.set(expressID, elemIdx);
-            const ifcType = getSafeIfcType(c, expressID);
-            elemNames[elemIdx] =
-              (ifcType ? `${ifcType} #${expressID}` : `IFC #${expressID}`) ||
-              `Element ${elemIdx + 1}`;
-            elemIds[elemIdx] = expressID;
-            elemUuids[elemIdx] = c.uuid;
-          }
-        } else {
-          if (typeof c.userData?.elementIndex === "number") {
-            elemIdx = c.userData.elementIndex;
-          } else {
-            elemIdx = elemIndex++;
-            const cName = typeof c.name === "string" ? c.name.trim() : "";
-            const parentName =
-              typeof c.parent?.name === "string" ? c.parent.name.trim() : "";
-            const userDataName =
-              typeof c.userData?.elementName === "string"
-                ? c.userData.elementName.trim()
-                : "";
-            elemNames[elemIdx] =
-              cName || parentName || userDataName || `Element ${elemIdx + 1}`;
-            elemIds[elemIdx] = null;
-            elemUuids[elemIdx] = c.uuid;
-          }
-        }
-
-        let arr = voxelToElems.get(key);
-        if (!arr) {
-          arr = [];
-          voxelToElems.set(key, arr);
-        }
-        if (arr[arr.length - 1] !== elemIdx) arr.push(elemIdx);
-      }
-    });
-
-    bimCacheRef.current = {
-      sig,
-      occupied,
-      voxelToElems,
-      elemNames,
-      elemUuids,
-      elemIds,
-      isIfc,
-    };
+    bimCacheRef.current = { sig, ...buildBimVoxels(bimModel) };
     return bimCacheRef.current;
   }, [bimModel]);
 
