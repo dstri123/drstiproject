@@ -166,7 +166,6 @@ export default function ActivityLogPage({
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey]);
 
   const fetchOptions = useCallback(async () => {

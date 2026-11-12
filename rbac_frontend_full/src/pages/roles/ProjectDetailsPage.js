@@ -24,6 +24,7 @@ import {
   FileText,
   Cloud,
   Loader2,
+  X,
 } from "lucide-react";
 import { useLocation, useParams, useNavigate } from "react-router-dom";
 import API from "../../api/axios";
