@@ -161,6 +161,10 @@ class CreateMemberView(APIView):
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
+        if not username or not password:
+            return Response({"error": "Username and password are required"}, status=400)
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already exists"}, status=400)
 
         user = User.objects.create_user(
             username=username,
@@ -178,6 +182,10 @@ class CreateUserView(APIView):
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
+        if not username or not password:
+            return Response({"error": "Username and password are required"}, status=400)
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already exists"}, status=400)
 
         user = User.objects.create_user(
             username=username,

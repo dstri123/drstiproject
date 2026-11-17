@@ -1,8 +1,8 @@
 import numpy as np
 from django.test import SimpleTestCase
 
-from .auto_registration import auto_register
-from .registration import _best_fit_transform
+from processing.auto_registration import auto_register
+from processing.registration import _best_fit_transform
 
 
 def _sample_box_surfaces(rng, lo, hi, n):

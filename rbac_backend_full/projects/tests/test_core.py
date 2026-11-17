@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 
-from .models import BIMData, PointCloudData, Project, ProjectUser
+from projects.models import BIMData, PointCloudData, Project, ProjectUser
 
 PW = "Passw0rd!"
 MEDIA = tempfile.mkdtemp()
