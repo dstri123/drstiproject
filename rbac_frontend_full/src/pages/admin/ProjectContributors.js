@@ -108,6 +108,8 @@ export default function ProjectContributors() {
           await API.post("create-user-assign/", {
             username: contributor.username,
             email: contributor.email,
+            first_name: contributor.first_name,
+            last_name: contributor.last_name,
             password: generateRandomPassword(),
             sub_role: contributor.role,
           });

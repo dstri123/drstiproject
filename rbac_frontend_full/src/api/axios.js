@@ -45,6 +45,7 @@ API.interceptors.response.use(
 
     if (
       error.response?.status !== 401 ||
+      !refresh ||
       originalRequest?._retry ||
       isAuthRequest
     ) {

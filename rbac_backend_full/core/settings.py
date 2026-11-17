@@ -167,3 +167,9 @@ EMAIL_BACKEND = os.environ.get(
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL", f"C Twin <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "C Twin <no-reply@drsti.local>"
 )
+
+# Tests create many users; the default PBKDF2 hasher makes each one take
+# ~0.3 s. Use a fast (insecure) hasher only while `manage.py test` runs.
+import sys as _sys
+if len(_sys.argv) > 1 and _sys.argv[1] == "test":
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

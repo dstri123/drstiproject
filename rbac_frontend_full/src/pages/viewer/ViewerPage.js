@@ -86,7 +86,9 @@ export default function ViewerPage({
       return fileUrl;
     }
     if (fileUrl.startsWith("/") && !fileUrl.startsWith("//")) {
-      const apiBase = API.defaults.baseURL.replace(/\/api\/?$/, "");
+      // baseURL is ".../api/v1/" — strip the whole API prefix (not just a
+      // bare "/api") so "/media/x" resolves to the server root.
+      const apiBase = API.defaults.baseURL.replace(/\/api(\/v\d+)?\/?$/, "");
       return `${apiBase}${fileUrl}`;
     }
     return fileUrl;
@@ -297,14 +299,26 @@ export default function ViewerPage({
       if (!resolvedId) return;
       setResolvedProjectId(resolvedId);
 
+      // One failing list (e.g. images/) must not blank the whole viewer:
+      // treat it as empty, keep loading the rest, and tell the user.
+      const failed = [];
+      const settle = (label, request) =>
+        request.catch((err) => {
+          console.error(`Failed to load ${label}`, err);
+          failed.push(label);
+          return { data: [] };
+        });
       const [bimRes, pointRes, imageRes, cameraRes, matrixRes] =
         await Promise.all([
-          API.get(`projects/${resolvedId}/bim/`),
-          API.get(`projects/${resolvedId}/pointcloud/`),
-          API.get(`projects/${resolvedId}/images/`),
-          API.get(`projects/${resolvedId}/camera/`),
-          API.get(`projects/${resolvedId}/matrix/`),
+          settle("BIM models", API.get(`projects/${resolvedId}/bim/`)),
+          settle("point clouds", API.get(`projects/${resolvedId}/pointcloud/`)),
+          settle("images", API.get(`projects/${resolvedId}/images/`)),
+          settle("camera files", API.get(`projects/${resolvedId}/camera/`)),
+          settle("matrix files", API.get(`projects/${resolvedId}/matrix/`)),
         ]);
+      if (failed.length) {
+        toast.error(`Could not load ${failed.join(", ")} for this project.`);
+      }
 
       // Pull the project's creation-time latitude/longitude for the map panel.
       const proj = (projectsRes.data || []).find(
@@ -393,6 +407,7 @@ export default function ViewerPage({
       ]);
     } catch (err) {
       console.error("Failed to load project assets", err);
+      toast.error("Failed to load project data. Please try again.");
     }
   };
 
@@ -595,36 +610,28 @@ export default function ViewerPage({
   const [isBuiltDetecting, setIsBuiltDetecting] = useState(false);
   const [builtDetectProgress, setBuiltDetectProgress] = useState(null);
   const handleModelDataChange = useCallback(
-    ({
-      // ── segmentation ──
-      toggleSegmentation,
-      isSegmented,
-      isSegmenting,
-      wasCompressed,
-      toggleSemanticSegmentation,
-      isSemanticActive,
-      isSamRunning,
-      samProgress,
-      semanticSummary,
-      ...rest
-    }) => {
-      // ThreeViewer reports from two effects with different fields, so only
-      // touch the built-detection state when it's actually included.
-      if ("runBuiltDetection" in rest) {
-        setRunBuiltDetection(() => rest.runBuiltDetection);
-        setIsBuiltDetecting(!!rest.isBuiltDetecting);
-        setBuiltDetectProgress(rest.builtDetectProgress || null);
+    (update) => {
+      // ThreeViewer reports from two effects with different fields (RANSAC
+      // vs SAM/built-detection), so only touch the state whose fields are
+      // actually included — otherwise each report wipes the other's state.
+      if ("runBuiltDetection" in update) {
+        setRunBuiltDetection(() => update.runBuiltDetection);
+        setIsBuiltDetecting(!!update.isBuiltDetecting);
+        setBuiltDetectProgress(update.builtDetectProgress || null);
       }
-      setToggleSegmentation(() => toggleSegmentation);
-      setIsSegmented(isSegmented);
-      setIsSegmenting(isSegmenting);
-      setWasCompressed(wasCompressed);
-      setToggleSemanticSegmentation(() => toggleSemanticSegmentation);
-      setIsSemanticActive(isSemanticActive);
-      setIsSamRunning(isSamRunning);
-      setSamProgress(samProgress);
-      setSemanticSummary(semanticSummary || null);
-
+      if ("toggleSegmentation" in update) {
+        setToggleSegmentation(() => update.toggleSegmentation);
+        setIsSegmented(update.isSegmented);
+        setIsSegmenting(update.isSegmenting);
+        setWasCompressed(update.wasCompressed);
+      }
+      if ("toggleSemanticSegmentation" in update) {
+        setToggleSemanticSegmentation(() => update.toggleSemanticSegmentation);
+        setIsSemanticActive(update.isSemanticActive);
+        setIsSamRunning(update.isSamRunning);
+        setSamProgress(update.samProgress);
+        setSemanticSummary(update.semanticSummary || null);
+      }
     },
     [],
   );
@@ -679,6 +686,9 @@ export default function ViewerPage({
   const [bimCategories, setBimCategories] = useState({}); // NEW
   const [overlapElementCount, setOverlapElementCount] = useState(0);
   const [overlapElementNames, setOverlapElementNames] = useState([]); // NEW
+  // Per-element overlap point counts ({byUuid, byExpressID}) reported by
+  // useOverlap — the sidebar looks up the selected element's count here.
+  const [overlapCounts, setOverlapCounts] = useState(null);
 
   // Per-element show/hide, toggled by the eye icon on each row of the
   // sidebar's BIM Element Categories list. Keyed by the same display label
@@ -864,6 +874,7 @@ export default function ViewerPage({
         onToggleElementVisibility: toggleElementVisibility,
         overlapElementCount,
         overlapElementNames, // NEW
+        overlapCounts,
         bimPoints,
         pcPoints,
         manualCameras,
@@ -974,6 +985,7 @@ export default function ViewerPage({
           setBimCategories={setBimCategories} // NEW
           setOverlapElementCount={setOverlapElementCount}
           setOverlapElementNames={setOverlapElementNames} // NEW
+          setOverlapCounts={setOverlapCounts}
           onManualCamerasChange={handleManualCamerasChange}
           onModelsChanged={({ bimModel, pcModel }) => {
             setBimModel(bimModel);
@@ -1143,8 +1155,9 @@ function MonthCalendar({
       >
         <button
           onClick={() =>
-            setViewMonth(new Date(year, Math.max(0, monthIdx - 1), 1))
+            setViewMonth(new Date(year, monthIdx - 1, 1))
           }
+          aria-label="Previous month"
           style={{
             background: "none",
             border: "1px solid #e2e8f0",
@@ -1163,8 +1176,9 @@ function MonthCalendar({
         </span>
         <button
           onClick={() =>
-            setViewMonth(new Date(year, Math.min(11, monthIdx + 1), 1))
+            setViewMonth(new Date(year, monthIdx + 1, 1))
           }
+          aria-label="Next month"
           style={{
             background: "none",
             border: "1px solid #e2e8f0",

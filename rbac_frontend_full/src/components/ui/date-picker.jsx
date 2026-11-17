@@ -8,7 +8,9 @@ function DatePicker({
   disabled = false,
   className,
 }) {
-  const dateValue = date ? date.toISOString().split("T")[0] : ""
+  // Guard against Invalid Date (e.g. a malformed string from the API):
+  // toISOString() throws a RangeError on it, which crashed the whole page.
+  const dateValue = date && !isNaN(date) ? date.toISOString().split("T")[0] : ""
 
   return (
     <input

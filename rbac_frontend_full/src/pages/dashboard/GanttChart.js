@@ -27,7 +27,7 @@ export function fmtRange(a, b) {
   return `${fmtShort(s)} - ${fmtShort(f)}`;
 }
 
-function isoWeek(d) {
+export function isoWeek(d) {
   const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   const day = (t.getUTCDay() + 6) % 7;
   t.setUTCDate(t.getUTCDate() - day + 3);
@@ -36,7 +36,7 @@ function isoWeek(d) {
 }
 
 // Header units for the current zoom: a coarse top band and a fine bottom band.
-function buildHeader(rangeStart, totalDays, pxPerDay) {
+export function buildHeader(rangeStart, totalDays, pxPerDay) {
   const top = [];
   const bottom = [];
   const end = addDays(rangeStart, totalDays);

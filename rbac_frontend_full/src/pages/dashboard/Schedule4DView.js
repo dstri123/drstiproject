@@ -20,7 +20,7 @@ const DAY_MS = 86400000;
 
 // Element colour states. Ghost states aren't drawn solid: they go to a faint
 // see-through mesh so the built / planned part of the model stands out.
-const STATES = {
+export const STATES = {
   done: { label: "Built (per plan)", color: "#cbd5e1" },
   active: { label: "In progress (per plan)", color: "#f59e0b" },
   future: { label: "Not started", ghost: true },
@@ -43,7 +43,7 @@ const STATE_RGB = Object.fromEntries(
     .map(([k, s]) => [k, new THREE.Color(s.color)]),
 );
 
-function elementState(act, { mode, date, selectedId, visibleIds, measured, scanDate }) {
+export function elementState(act, { mode, date, selectedId, visibleIds, measured, scanDate }) {
   if (!act) return "unlinked";
   if (act.id === selectedId) return "selected";
   if (visibleIds && !visibleIds.has(act.id)) return "filtered";
@@ -58,7 +58,7 @@ function elementState(act, { mode, date, selectedId, visibleIds, measured, scanD
   return "future";
 }
 
-function plannedStateLabel(act, date) {
+export function plannedStateLabel(act, date) {
   if (date > act.finish) return "Finished (per plan)";
   if (date >= act.start) return "In progress (per plan)";
   return "Not started (per plan)";
@@ -66,7 +66,7 @@ function plannedStateLabel(act, date) {
 
 // Split web-ifc's merged IFC mesh into a solid + a ghost mesh that share its
 // vertex buffers; paint() only rewrites the colours and the two index lists.
-function buildModel(ifcModel) {
+export function buildModel(ifcModel) {
   const src = ifcModel.geometry;
   src.computeBoundingBox();
   src.computeBoundingSphere();
@@ -100,7 +100,7 @@ function buildModel(ifcModel) {
   return { solid, ghost, index, triExp, vertexExp, color, box: src.boundingBox, elements: Array.from(new Set(triExp)) };
 }
 
-function paint(model, stateOf) {
+export function paint(model, stateOf) {
   const { solid, ghost, index, triExp, vertexExp, color } = model;
   const rgb = new Map(); // expressID -> THREE.Color, or null when ghosted
   const counts = {};
