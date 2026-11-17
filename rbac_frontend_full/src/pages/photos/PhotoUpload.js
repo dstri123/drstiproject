@@ -620,15 +620,16 @@ export default function PhotoUpload() {
                           <Star className="w-3 h-3 text-green-600 fill-green-600" />
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="ghost"
                             onClick={() =>
                               deleteCameraFile(latestCameraFile.id)
                             }
                             disabled={cameraDeleteLoading}
-                            className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                            title="Delete"
+                            aria-label="Delete"
+                            className="hover:bg-red-50 hover:text-red-600"
                           >
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            Delete
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
@@ -730,15 +731,16 @@ export default function PhotoUpload() {
                           <Star className="w-3 h-3 text-green-600 fill-green-600" />
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="ghost"
                             onClick={() =>
                               deleteMatrixFile(latestMatrixFile.id)
                             }
                             disabled={matrixDeleteLoading}
-                            className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                            title="Delete"
+                            aria-label="Delete"
+                            className="hover:bg-red-50 hover:text-red-600"
                           >
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            Delete
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
@@ -824,13 +826,14 @@ export default function PhotoUpload() {
                     )}
                     <Button
                       size="sm"
-                      variant="secondary"
+                      variant="ghost"
                       onClick={deleteImageFolder}
                       disabled={folderDeleteLoading}
-                      className="px-2 py-1 text-[10px] text-gray-700 bg-gray-100 border border-gray-200 hover:bg-gray-200"
+                      title="Delete"
+                      aria-label="Delete"
+                      className="hover:bg-red-50 hover:text-red-600"
                     >
-                      <Trash2 className="w-3 h-3 mr-1" />
-                      Delete
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

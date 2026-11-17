@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, CheckCircle2, AlertCircle, User, Mail, Trash2, Edit2 } from "lucide-react";
+import { ArrowLeft, Loader2, CheckCircle2, AlertCircle, User, Mail, Trash2, Edit } from "lucide-react";
 import API from "../../api/axios";
 import Topbar from "../../layouts/Topbar";
 import { useToast } from "../../components/ToastContainer";
@@ -317,30 +317,28 @@ export default function EditOrganization() {
                           </TableCell>
                           <TableCell className="py-3">
                             <div className="flex items-center gap-2">
-                              <button
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => handleEditAdmin(admin)}
                                 disabled={admin.has_dependencies}
                                 title={admin.has_dependencies ? "Cannot edit admin with dependencies" : "Edit admin"}
-                                className={`p-1.5 rounded transition-colors ${
-                                  admin.has_dependencies
-                                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                    : "bg-blue-50 text-blue-600 hover:bg-blue-100"
-                                }`}
+                                aria-label="Edit admin"
+                                className="hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => handleDeleteAdmin(admin)}
                                 disabled={admin.has_dependencies}
                                 title={admin.has_dependencies ? `Cannot delete: has ${admin.projects_count} project(s)` : "Delete admin"}
-                                className={`p-1.5 rounded transition-colors ${
-                                  admin.has_dependencies
-                                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                                    : "bg-red-50 text-red-600 hover:bg-red-100"
-                                }`}
+                                aria-label="Delete admin"
+                                className="hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>

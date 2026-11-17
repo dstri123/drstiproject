@@ -175,20 +175,22 @@ export default function OrganizationManagement() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleEdit(org)}
+                      title="Edit"
+                      aria-label="Edit"
                       className="hover:bg-blue-50 hover:text-blue-600"
                     >
                       <Edit className="h-4 w-4" />
-                      <span className="ml-1 text-xs font-medium">Edit</span>
                     </Button>
 
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => deleteOrg(org.id)}
+                      title="Delete"
+                      aria-label="Delete"
                       className="hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 className="h-4 w-4" />
-                      <span className="ml-1 text-xs font-medium">Delete</span>
                     </Button>
                   </div>
                 </TableCell>
@@ -252,17 +254,19 @@ export default function OrganizationManagement() {
               <div className="border-t border-gray-200 pt-3 flex gap-2">
                 <Button
                   onClick={() => handleEdit(org)}
-                  className="flex-1 bg-black hover:bg-gray-900 text-white text-xs font-medium py-1.5 rounded"
+                  title="Edit"
+                  aria-label="Edit"
+                  className="flex-1 bg-black hover:bg-gray-900 text-white py-1.5 rounded"
                 >
-                  <Edit className="w-3 h-3 mr-1" />
-                  Edit
+                  <Edit className="w-4 h-4" />
                 </Button>
                 <Button
                   onClick={() => deleteOrg(org.id)}
-                  className="flex-1 bg-black hover:bg-gray-900 text-white text-xs font-medium py-1.5 rounded border border-gray-400"
+                  title="Delete"
+                  aria-label="Delete"
+                  className="flex-1 bg-black hover:bg-gray-900 text-white py-1.5 rounded border border-gray-400"
                 >
-                  <Trash2 className="w-3 h-3 mr-1" />
-                  Delete
+                  <Trash2 className="w-4 h-4" />
                 </Button>
               </div>
             </div>

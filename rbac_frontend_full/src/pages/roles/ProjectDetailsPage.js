@@ -17,7 +17,7 @@ import {
   Trash2,
   Save,
   Upload,
-  Edit2,
+  Edit,
   Eye,
   ArrowLeft,
   Image as ImageIcon,
@@ -354,39 +354,50 @@ export default function ProjectDetailsPage() {
             <Button
               size="sm"
               onClick={() => saveRow(type, row)}
-              className="bg-black hover:bg-gray-900 text-white min-w-[96px]"
-              title="Save changes"
+              className="bg-black hover:bg-gray-900 text-white"
+              title={
+                savingRowId === row.id
+                  ? row.file instanceof File
+                    ? `Uploading ${uploadProgress}%`
+                    : "Saving..."
+                  : "Save changes"
+              }
+              aria-label={
+                savingRowId === row.id
+                  ? row.file instanceof File
+                    ? `Uploading ${uploadProgress}%`
+                    : "Saving..."
+                  : "Save"
+              }
               disabled={!row.editable || savingRowId === row.id}
             >
               {savingRowId === row.id ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  {row.file instanceof File
-                    ? `Uploading ${uploadProgress}%`
-                    : "Saving..."}
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {/* Large uploads can take minutes — keep the % visible. */}
+                  {row.file instanceof File && (
+                    <span className="ml-1 text-xs">{uploadProgress}%</span>
+                  )}
                 </>
               ) : (
-                <>
-                  <Save className="w-4 h-4 mr-1" />
-                  Save
-                </>
+                <Save className="w-4 h-4" />
               )}
             </Button>
 
             <Button
               size="sm"
-              variant="outline"
+              variant="ghost"
               onClick={() => toggleEdit(type, row.id)}
-              className="border-gray-300 text-black hover:bg-gray-100"
+              className="hover:bg-blue-50 hover:text-blue-600"
               title={row.editable ? "Cancel editing" : "Edit this entry"}
+              aria-label={row.editable ? "Cancel" : "Edit"}
             >
-              <Edit2 className="w-4 h-4 mr-1" />
-              {row.editable ? "Cancel" : "Edit"}
+              {row.editable ? <X className="w-4 h-4" /> : <Edit className="w-4 h-4" />}
             </Button>
 
             <Button
               size="sm"
-              variant="destructive"
+              variant="ghost"
               disabled={isOnlyServerRow}
               onClick={() =>
                 setDeleteDialog({ open: true, type, rowId: row.id })
@@ -396,10 +407,10 @@ export default function ProjectDetailsPage() {
                   ? "Can't delete the only file — use Edit to replace it"
                   : "Delete this entry permanently"
               }
-              className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Delete"
+              className="hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Delete
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -444,12 +455,14 @@ export default function ProjectDetailsPage() {
               </button>
 
               <Button
-                size="icon"
-                variant="destructive"
+                size="sm"
+                variant="ghost"
                 onClick={() => deleteImageBatch(batch.batchName)}
                 title="Delete folder"
+                aria-label="Delete folder"
+                className="hover:bg-red-50 hover:text-red-600"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="h-4 w-4" />
               </Button>
 
               <button
@@ -496,12 +509,14 @@ export default function ProjectDetailsPage() {
 
                   <div className="flex gap-2 shrink-0">
                     <Button
-                      size="icon"
-                      variant="destructive"
+                      size="sm"
+                      variant="ghost"
                       onClick={() => deleteRow("images", row.id)}
                       title="Delete"
+                      aria-label="Delete"
+                      className="hover:bg-red-50 hover:text-red-600"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>

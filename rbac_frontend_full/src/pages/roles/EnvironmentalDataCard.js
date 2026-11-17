@@ -261,11 +261,14 @@ export default function EnvironmentalDataCard({ projectId }) {
         <div className="flex items-center gap-2">
           {recordId && (
             <Button
-              variant="outline"
+              variant="ghost"
+              size="sm"
               onClick={remove}
-              className="border-gray-300 text-red-600 hover:bg-red-50"
+              title="Delete"
+              aria-label="Delete"
+              className="hover:bg-red-50 hover:text-red-600"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="h-4 w-4" />
             </Button>
           )}
           <Button
