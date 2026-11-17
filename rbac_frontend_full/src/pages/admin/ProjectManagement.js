@@ -453,22 +453,29 @@ export default function ProjectManagement() {
               <DialogFooter className="flex md:justify-between items-center sm:justify-between mt-2 pt-4 border-t">
                 <div className="flex gap-2 w-full md:w-auto mb-4 md:mb-0">
                   <Button
-                    variant="outline"
+                    variant="ghost"
+                    size="sm"
+                    title="Edit Info"
+                    aria-label="Edit Info"
+                    className="hover:bg-blue-50 hover:text-blue-600"
                     onClick={() => {
                       setEditData(selectedProjectDetails);
                       setEditOpen(true);
                     }}
                   >
-                    <Edit className="w-4 h-4 mr-2" /> Edit Info
+                    <Edit className="h-4 w-4" />
                   </Button>
                   <Button
-                    variant="outline"
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20"
+                    variant="ghost"
+                    size="sm"
+                    title="Delete"
+                    aria-label="Delete"
+                    className="hover:bg-red-50 hover:text-red-600"
                     onClick={() => {
                       deleteProject(selectedProjectDetails.id);
                     }}
                   >
-                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
 

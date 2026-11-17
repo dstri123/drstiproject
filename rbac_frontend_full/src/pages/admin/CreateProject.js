@@ -309,12 +309,14 @@ export default function CreateProject() {
                   />
                 </div>
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="sm"
                   onClick={removeImage}
-                  className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap hover:bg-gray-100"
+                  title="Remove Image"
+                  aria-label="Remove Image"
+                  className="hover:bg-red-50 hover:text-red-600"
                 >
-                  <Trash2 className="w-4 h-4" />
-                  Remove Image
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
@@ -834,10 +836,11 @@ export default function CreateProject() {
                               variant="ghost"
                               size="sm"
                               onClick={() => removeAssignedContributor(contributor.id)}
-                              className="hover:bg-red-50 hover:text-red-600 text-xs"
+                              title="Unassign"
+                              aria-label="Unassign"
+                              className="hover:bg-red-50 hover:text-red-600"
                             >
-                              <Trash2 className="w-4 h-4" />
-                              Unassign
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
                         </TableRow>

@@ -395,12 +395,14 @@ export default function EditProject() {
                 {projectImagePreview && (
                   <Button
                     type="button"
-                    variant="outline"
-                    className="w-full border-red-300 text-red-600 hover:bg-red-50"
+                    variant="ghost"
+                    size="sm"
+                    title="Remove Image"
+                    aria-label="Remove Image"
+                    className="hover:bg-red-50 hover:text-red-600"
                     onClick={removeImage}
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Remove Image
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
               </div>
@@ -829,10 +831,11 @@ export default function EditProject() {
                               variant="ghost"
                               size="sm"
                               onClick={() => removeAssignedContributor(contributor.id)}
-                              className="hover:bg-red-50 hover:text-red-600 text-xs"
+                              title="Unassign"
+                              aria-label="Unassign"
+                              className="hover:bg-red-50 hover:text-red-600"
                             >
-                              <Trash2 className="w-4 h-4" />
-                              Unassign
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </TableCell>
                         </TableRow>

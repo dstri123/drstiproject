@@ -202,14 +202,17 @@ export default function GaussianFileCard({
                       {new Date(item.uploaded_at).toLocaleString()}
                     </td>
                     <td className="px-3 py-1.5 border-b border-gray-100 text-right">
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="sm"
                         onClick={() => remove(item)}
                         title="Delete"
-                        className="text-gray-400 hover:text-red-600"
+                        aria-label="Delete"
+                        className="hover:bg-red-50 hover:text-red-600"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </td>
                   </tr>
                 ))}
