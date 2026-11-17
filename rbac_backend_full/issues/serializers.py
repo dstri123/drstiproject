@@ -93,6 +93,10 @@ class IssueSerializer(serializers.ModelSerializer):
         if validated_data.pop("clear_photo", False) and "photo" not in validated_data:
             instance.photo.delete(save=False)
             instance.photo = None
+        # A replaced photo/snapshot would otherwise stay on disk forever.
+        for field in ("photo", "snapshot"):
+            if validated_data.get(field) and getattr(instance, field):
+                getattr(instance, field).delete(save=False)
         return super().update(instance, validated_data)
 
     def create(self, validated_data):

@@ -246,7 +246,7 @@ def health():
             "model_ready": True,
             "checkpoint": SAM_CHECKPOINT_PATH,
         }
-    except RuntimeError as exc:
+    except (RuntimeError, ImportError) as exc:  # missing checkpoint or ML package
         return {
             "status": "degraded",
             "device": DEVICE,
@@ -260,6 +260,7 @@ def health():
 async def segment(file: UploadFile = File(...), return_overlay: bool = True):
     try:
         image = Image.open(io.BytesIO(await file.read()))
+        image.load()  # decode now so a truncated/corrupt upload is a 400, not a 500
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
     try:
@@ -275,6 +276,7 @@ async def segment_base64(req: Base64Request):
         raw = raw.split(",", 1)[1]
     try:
         image = Image.open(io.BytesIO(base64.b64decode(raw)))
+        image.load()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
     try:

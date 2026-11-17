@@ -41,7 +41,14 @@ class Project(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.project_name)
+            # slug is unique: suffix -2, -3, ... when another project already
+            # uses it (same/similar names, or names that slugify to "").
+            base = slugify(self.project_name)[:240] or "project"
+            slug, n = base, 2
+            while Project.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
         super().save(*args, **kwargs)
 
     def __str__(self):
