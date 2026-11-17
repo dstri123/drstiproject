@@ -244,8 +244,23 @@ export default function IssueFormModal({
 
         <div style={footer}>
           {editing && (
-            <button type="button" onClick={remove} disabled={saving} style={dangerBtn}>
-              <Trash2 size={13} /> Delete
+            <button
+              type="button"
+              onClick={remove}
+              disabled={saving}
+              title="Delete"
+              aria-label="Delete"
+              style={dangerBtn}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "#fef2f2";
+                e.currentTarget.style.color = "#dc2626";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "#0f172a";
+              }}
+            >
+              <Trash2 size={16} />
             </button>
           )}
           <span style={{ flex: 1 }} />
@@ -385,7 +400,8 @@ const baseBtn = {
 };
 const primaryBtn = { ...baseBtn, border: "none", background: "#4f46e5", color: "#fff" };
 const secondaryBtn = { ...baseBtn, border: "1px solid #e5e7eb", background: "#fff", color: "#475569" };
-const dangerBtn = { ...baseBtn, border: "1px solid #fecaca", background: "#fff", color: "#dc2626" };
+// Same look as the app's delete buttons (ghost; red-50 / red-600 on hover).
+const dangerBtn = { ...baseBtn, padding: "7px 10px", border: "none", background: "transparent", color: "#0f172a" };
 const smallBtn = {
   ...baseBtn,
   fontSize: 11,

@@ -299,6 +299,7 @@ export default function ActivityLogPage({
             onClick={() => openEdit(log)}
             className="hover:bg-blue-50 hover:text-blue-600"
             title="Edit"
+            aria-label="Edit"
           >
             <Edit className="h-4 w-4" />
           </Button>
@@ -308,6 +309,7 @@ export default function ActivityLogPage({
             onClick={() => handleDelete(log)}
             className="hover:bg-red-50 hover:text-red-600"
             title="Delete"
+            aria-label="Delete"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -359,11 +361,15 @@ export default function ActivityLogPage({
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             {canEdit && selected.size > 0 && (
               <Button
+                variant="ghost"
                 onClick={handleBulkDelete}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center"
+                title={`Delete selected (${selected.size})`}
+                aria-label={`Delete selected (${selected.size})`}
+                className="hover:bg-red-50 hover:text-red-600 p-2.5 rounded-md flex items-center gap-1 justify-center"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete selected ({selected.size})
+                {/* Keep the count visible: it says how many rows will go. */}
+                <span className="text-xs font-medium">{selected.size}</span>
               </Button>
             )}
             <Button
@@ -372,19 +378,21 @@ export default function ActivityLogPage({
                 fetchOptions();
               }}
               variant="outline"
-              className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center hover:bg-gray-50"
+              title="Refresh"
+              aria-label="Refresh"
+              className="border-gray-300 text-black p-2.5 rounded-md flex items-center justify-center hover:bg-gray-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-              Refresh
             </Button>
             <Button
               onClick={handleExport}
               disabled={exporting || count === 0}
               variant="outline"
-              className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center hover:bg-gray-50"
+              title={exporting ? "Exporting..." : "Export CSV"}
+              aria-label={exporting ? "Exporting..." : "Export CSV"}
+              className="border-gray-300 text-black p-2.5 rounded-md flex items-center justify-center hover:bg-gray-50"
             >
-              <Download className="w-4 h-4" />
-              {exporting ? "Exporting..." : "Export CSV"}
+              <Download className={`w-4 h-4 ${exporting ? "animate-pulse" : ""}`} />
             </Button>
           </div>
         </div>
@@ -718,22 +726,28 @@ export default function ActivityLogPage({
           {viewing && canEdit && (
             <DialogFooter className="gap-2">
               <Button
-                variant="outline"
+                variant="ghost"
+                size="sm"
+                title="Edit"
+                aria-label="Edit"
+                className="hover:bg-blue-50 hover:text-blue-600"
                 onClick={() => {
                   const log = viewing;
                   setViewing(null);
                   openEdit(log);
                 }}
               >
-                <Edit className="w-4 h-4 mr-1" />
-                Edit
+                <Edit className="h-4 w-4" />
               </Button>
               <Button
-                className="bg-red-600 hover:bg-red-700 text-white"
+                variant="ghost"
+                size="sm"
+                title="Delete"
+                aria-label="Delete"
+                className="hover:bg-red-50 hover:text-red-600"
                 onClick={() => handleDelete(viewing)}
               >
-                <Trash2 className="w-4 h-4 mr-1" />
-                Delete
+                <Trash2 className="h-4 w-4" />
               </Button>
             </DialogFooter>
           )}

@@ -230,10 +230,11 @@ export default function ProjectContributors() {
             <Button
               onClick={handleExportCSV}
               variant="outline"
-              className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center hover:bg-gray-50"
+              title="Export CSV"
+              aria-label="Export CSV"
+              className="border-gray-300 text-black p-2.5 rounded-md flex items-center justify-center hover:bg-gray-50"
             >
               <Download className="w-4 h-4" />
-              Export CSV
             </Button>
 
             <label htmlFor="csv-import" className="cursor-pointer">
@@ -249,10 +250,11 @@ export default function ProjectContributors() {
                 variant="outline"
                 onClick={() => document.getElementById("csv-import").click()}
                 disabled={importing}
-                className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center hover:bg-gray-50"
+                title={importing ? "Importing..." : "Import CSV"}
+                aria-label={importing ? "Importing..." : "Import CSV"}
+                className="border-gray-300 text-black p-2.5 rounded-md flex items-center justify-center hover:bg-gray-50"
               >
-                <Upload className="w-4 h-4" />
-                {importing ? "Importing..." : "Import CSV"}
+                <Upload className={`w-4 h-4 ${importing ? "animate-pulse" : ""}`} />
               </Button>
             </label>
           </div>
@@ -413,20 +415,22 @@ export default function ProjectContributors() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEdit(contributor.id)}
+                          title="Edit"
+                          aria-label="Edit"
                           className="hover:bg-blue-50 hover:text-blue-600"
                         >
                           <Edit className="h-4 w-4" />
-                          <span className="ml-1 text-xs font-medium">Edit</span>
                         </Button>
 
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDelete(contributor.id)}
+                          title="Delete"
+                          aria-label="Delete"
                           className="hover:bg-red-50 hover:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />
-                          <span className="ml-1 text-xs font-medium">Delete</span>
                         </Button>
                       </div>
                     </TableCell>
@@ -496,17 +500,19 @@ export default function ProjectContributors() {
                 <div className="border-t border-gray-200 pt-3 flex gap-2">
                   <Button
                     onClick={() => handleEdit(contributor.id)}
-                    className="flex-1 bg-black hover:bg-gray-900 text-white text-xs font-medium py-1.5 rounded"
+                    title="Edit"
+                    aria-label="Edit"
+                    className="flex-1 bg-black hover:bg-gray-900 text-white py-1.5 rounded"
                   >
-                    <Edit className="w-3 h-3 mr-1" />
-                    Edit
+                    <Edit className="w-4 h-4" />
                   </Button>
                   <Button
                     onClick={() => handleDelete(contributor.id)}
-                    className="flex-1 bg-black hover:bg-gray-900 text-white text-xs font-medium py-1.5 rounded border border-gray-400"
+                    title="Delete"
+                    aria-label="Delete"
+                    className="flex-1 bg-black hover:bg-gray-900 text-white py-1.5 rounded border border-gray-400"
                   >
-                    <Trash2 className="w-3 h-3 mr-1" />
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>

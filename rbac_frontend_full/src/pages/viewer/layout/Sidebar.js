@@ -913,7 +913,7 @@ export default function ContextPanel(props) {
                     danger
                     onClick={() => onDeleteManualCamera?.(cam.name)}
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={14} />
                   </IconBtn>
                 </div>
               ))}
@@ -1101,7 +1101,7 @@ function ModelCard({ label, name, visible, accent, onToggle, onDelete }) {
         {visible ? <Eye size={12} /> : <EyeOff size={12} />}
       </IconBtn>
       <IconBtn title="Remove" danger onClick={onDelete}>
-        <Trash2 size={12} />
+        <Trash2 size={14} />
       </IconBtn>
     </div>
   );
@@ -1269,6 +1269,39 @@ function CategoryDropdown({
 }
 
 function IconBtn({ title, danger, onClick, children }) {
+  if (danger) {
+    // Delete/remove: same look as the app's delete buttons (ghost button,
+    // red-50 background and red-600 icon on hover).
+    return (
+      <button
+        title={title}
+        aria-label={title}
+        onClick={onClick}
+        style={{
+          background: "transparent",
+          border: "none",
+          borderRadius: 6,
+          cursor: "pointer",
+          color: "#0f172a",
+          display: "flex",
+          alignItems: "center",
+          padding: 4,
+          flexShrink: 0,
+          transition: "color 0.12s, background 0.12s",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "#fef2f2";
+          e.currentTarget.style.color = "#dc2626";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "#0f172a";
+        }}
+      >
+        {children}
+      </button>
+    );
+  }
   return (
     <button
       title={title}

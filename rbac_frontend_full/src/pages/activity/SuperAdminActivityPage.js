@@ -158,10 +158,11 @@ export default function SuperAdminActivityPage() {
             <Button
               onClick={fetchAdmins}
               variant="outline"
-              className="border-gray-300 text-black px-4 py-2.5 font-medium rounded-md flex items-center gap-2 whitespace-nowrap justify-center hover:bg-gray-50"
+              title="Refresh"
+              aria-label="Refresh"
+              className="border-gray-300 text-black p-2.5 rounded-md flex items-center justify-center hover:bg-gray-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-              Refresh
             </Button>
           )}
         </div>

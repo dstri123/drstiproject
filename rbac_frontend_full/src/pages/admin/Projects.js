@@ -167,13 +167,14 @@ export default function Projects() {
                     {/* Action Buttons */}
                     <div className="flex gap-2 pt-2 border-t border-gray-200">
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => handleEdit(project)}
-                        className="flex-1 border-gray-300 text-black text-xs hover:bg-gray-50"
+                        title="View Details"
+                        aria-label="View Details"
+                        className="hover:bg-blue-50 hover:text-blue-600"
                       >
-                        <Edit className="w-3 h-3 mr-1" />
-                        View Details
+                        <Edit className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="outline"
