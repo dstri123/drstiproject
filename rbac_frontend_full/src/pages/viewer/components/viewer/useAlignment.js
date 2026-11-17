@@ -346,17 +346,23 @@ export default function useAlignment(sceneData, modelData, props) {
     }
 
     // Coarse initial guess from picked pairs (optional but greatly helps ICP).
+    // Unusable picks (unequal counts, all at one spot) just mean no seed —
+    // kabsch throwing here used to escape as an unhandled rejection.
     let init = null;
-    if (pcModel && bimPoints.length >= 3 && pcPoints.length >= 3) {
+    if (pcModel && bimPoints.length >= 3 && bimPoints.length === pcPoints.length) {
       const src = pcPoints.map((p) => ({ x: p.x, y: p.y, z: p.z }));
       const dst = bimPoints.map((p) => ({ x: p.x, y: p.y, z: p.z }));
-      const { R, t, scale } = kabschAlgorithm(src, dst);
-      init = [
-        [scale * R[0][0], scale * R[0][1], scale * R[0][2], t[0]],
-        [scale * R[1][0], scale * R[1][1], scale * R[1][2], t[1]],
-        [scale * R[2][0], scale * R[2][1], scale * R[2][2], t[2]],
-        [0, 0, 0, 1],
-      ];
+      try {
+        const { R, t, scale } = kabschAlgorithm(src, dst);
+        init = [
+          [scale * R[0][0], scale * R[0][1], scale * R[0][2], t[0]],
+          [scale * R[1][0], scale * R[1][1], scale * R[1][2], t[1]],
+          [scale * R[2][0], scale * R[2][1], scale * R[2][2], t[2]],
+          [0, 0, 0, 1],
+        ];
+      } catch (err) {
+        console.warn("ICP: ignoring unusable picked pairs", err);
+      }
     }
 
     const source = extractWorldPoints(pcModel, 20000);
@@ -685,6 +691,9 @@ export default function useAlignment(sceneData, modelData, props) {
   }, [
     alignGeometry,
     alignGeometryICP,
+    autoAlign,
+    tryNextAutoAlign,
+    undoAutoAlign,
     generateMatrix,
     exportMatrix,
     applyUploadedMatrix,

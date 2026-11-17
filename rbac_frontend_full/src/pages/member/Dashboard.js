@@ -80,7 +80,7 @@ export default function MemberDashboard() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleView(project.id)}
+                      onClick={() => handleView(project)}
                       title="View Project"
                     >
                       <Eye className="w-4 h-4" />

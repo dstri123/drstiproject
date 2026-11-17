@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { X, CheckCircle2, AlertCircle, Info } from "lucide-react";
 
 export default function Toast({
@@ -8,12 +8,18 @@ export default function Toast({
   duration = 3000,
   id
 }) {
+  // Keep the latest onClose in a ref: ToastProvider passes a new arrow on
+  // every render, and restarting the timer each time meant a toast never
+  // auto-closed while other toasts kept being added.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (duration) {
-      const timer = setTimeout(onClose, duration);
+      const timer = setTimeout(() => onCloseRef.current?.(), duration);
       return () => clearTimeout(timer);
     }
-  }, [duration, onClose]);
+  }, [duration]);
 
   const bgColors = {
     success: "bg-green-50 border-green-300",

@@ -36,7 +36,7 @@ const calBtnStyle = {
 };
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
-function toDateStr(date) {
+export function toDateStr(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -44,7 +44,7 @@ function toDateStr(date) {
 }
 
 // ─── MonthCalendar popup (rendered via portal so it escapes overflow:hidden) ──
-function MonthCalendar({
+export function MonthCalendar({
   uploadsByDate,
   selectedDate,
   onDateSelect,
@@ -365,7 +365,7 @@ function MonthCalendar({
 // scale) lets you nudge each side here; models load in their saved geo-aligned
 // pose first.
 const SIDE_ACCENT = { A: "#3b82f6", B: "#10b981" };
-const DEFAULT_ALIGN = {
+export const DEFAULT_ALIGN = {
   rx: 0,
   ry: 0,
   rz: 0,
@@ -375,11 +375,11 @@ const DEFAULT_ALIGN = {
   opacity: 1,
   scale: 1,
 };
-const deg2rad = (d) => (d * Math.PI) / 180;
+export const deg2rad = (d) => (d * Math.PI) / 180;
 
 // Give a BIM model the clean, light "technical drawing" look: pale near-white
 // surfaces + thin dark edge lines on every element (like the viewer).
-function applyCleanBim(root) {
+export function applyCleanBim(root) {
   root.traverse((c) => {
     if (!c.isMesh) return;
     c.material = new THREE.MeshStandardMaterial({
@@ -416,6 +416,77 @@ const OVERLAY_ZONE = 0.1;
 const GHOST_MIN = 0.25;
 const GHOST_MAX = 0.7;
 
+// Which side (if any) has its handle dragged into the edge zone, and how far
+// in (t: 0 → just entered, 1 → at the edge). v/h are the handle fractions,
+// vOn/hOn whether each curtain is enabled.
+export function closingSideFor(v, h, vOn, hOn) {
+  if (vOn) {
+    // Handle at the left edge leaves no room for A, right edge none for B.
+    if (v <= OVERLAY_ZONE) return { side: "A", t: 1 - v / OVERLAY_ZONE };
+    if (v >= 1 - OVERLAY_ZONE)
+      return { side: "B", t: (v - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
+  }
+  if (hOn) {
+    // B keeps the top part, A the bottom part.
+    if (h <= OVERLAY_ZONE) return { side: "B", t: 1 - h / OVERLAY_ZONE };
+    if (h >= 1 - OVERLAY_ZONE)
+      return { side: "A", t: (h - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
+  }
+  return null;
+}
+
+// Model choices for one date: "all" (when more than one) then each BIM and
+// each point cloud.
+export function modelOptionsFor(uploadsByDate, dateStr) {
+  const u = uploadsByDate[dateStr];
+  if (!u) return [];
+  const opts = [];
+  const total = (u.bim?.length || 0) + (u.pc?.length || 0);
+  if (total > 1) opts.push({ value: "all", label: `All models (${total})` });
+  (u.bim || []).forEach((it, i) =>
+    opts.push({
+      value: `bim:${i}`,
+      label: `BIM · ${it.description || it.file?.split("/").pop() || "model"}`,
+    }),
+  );
+  (u.pc || []).forEach((it, i) =>
+    opts.push({
+      value: `pc:${i}`,
+      label: `Point Cloud · ${it.description || it.file?.split("/").pop() || "cloud"}`,
+    }),
+  );
+  return opts;
+}
+
+// Initial Side A / Side B dates: A = initialDate if it has uploads, else the
+// second-latest date; B = the latest other date (null if there is none).
+export function autoPickDates(uploadsByDate, initialDate) {
+  const dates = Object.keys(uploadsByDate).sort();
+  if (!dates.length) return null;
+  const a =
+    initialDate && uploadsByDate[initialDate]
+      ? initialDate
+      : dates[Math.max(0, dates.length - 2)];
+  const b = [...dates].reverse().find((d) => d !== a) || null;
+  return { a, b };
+}
+
+// Group BIM and point-cloud uploads by their date: { "YYYY-MM-DD": { bim, pc } }.
+// Items without a date are skipped.
+export function groupUploadsByDate(bimItems, pcItems) {
+  const byDate = {};
+  const merge = (items, type) => {
+    (items || []).forEach((item) => {
+      if (!item.date) return;
+      if (!byDate[item.date]) byDate[item.date] = { bim: [], pc: [] };
+      byDate[item.date][type].push(item);
+    });
+  };
+  merge(bimItems, "bim");
+  merge(pcItems, "pc");
+  return byDate;
+}
+
 // Orient a curtain plane pair so it passes through the camera and the
 // handle's line on screen: Side A keeps what is left of (or below) the line,
 // Side B what is right of (or above) it. Being screen-based, the wipe follows
@@ -427,7 +498,7 @@ const GHOST_MAX = 0.7;
 const _curtainP1 = new THREE.Vector3();
 const _curtainP2 = new THREE.Vector3();
 const _curtainProbe = new THREE.Vector3();
-function setScreenCurtain(camera, planeA, planeB, axis, f) {
+export function setScreenCurtain(camera, planeA, planeB, axis, f) {
   if (!planeA || !planeB) return;
   camera.updateMatrixWorld();
   if (axis === "v") {
@@ -446,7 +517,7 @@ function setScreenCurtain(camera, planeA, planeB, axis, f) {
   planeB.copy(planeA).negate();
 }
 
-const applySavedTransform = (object, t) => {
+export const applySavedTransform = (object, t) => {
   if (!object || !t || typeof t !== "object") return;
   if (Array.isArray(t.position) && t.position.length === 3)
     object.position.fromArray(t.position);
@@ -458,7 +529,7 @@ const applySavedTransform = (object, t) => {
   object.updateMatrixWorld(true);
 };
 
-function disposeObject(obj) {
+export function disposeObject(obj) {
   obj.traverse((n) => {
     // IFC models also live in web-ifc's WASM heap until closed; without this
     // every date switch leaks a whole model there.
@@ -474,7 +545,7 @@ function disposeObject(obj) {
 // Load one uploaded model (kind "bim" | "pc") in its saved geo-aligned pose.
 // Each material remembers its own opacity in userData.baseOpacity so the
 // opacity slider / overlay ghosting can scale it without losing the BIM look.
-async function loadModel(kind, item) {
+export async function loadModel(kind, item) {
   const url = getFileUrl(item.file);
   let obj;
   if (kind === "pc") {
@@ -553,7 +624,7 @@ async function loadModel(kind, item) {
   return obj;
 }
 
-function CompareScene({ uploadsByDate, initialDate }) {
+export function CompareScene({ uploadsByDate, initialDate }) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneRef = useRef(null);
@@ -717,23 +788,8 @@ function CompareScene({ uploadsByDate, initialDate }) {
 
   // Which side (if any) has its handle dragged into the edge zone, and how far
   // in (t: 0 → just entered, 1 → at the edge).
-  const closingSide = () => {
-    const v = vClipRef.current;
-    const h = hClipRef.current;
-    if (vOnRef.current) {
-      // Handle at the left edge leaves no room for A, right edge none for B.
-      if (v <= OVERLAY_ZONE) return { side: "A", t: 1 - v / OVERLAY_ZONE };
-      if (v >= 1 - OVERLAY_ZONE)
-        return { side: "B", t: (v - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
-    }
-    if (hOnRef.current) {
-      // B keeps the top part, A the bottom part.
-      if (h <= OVERLAY_ZONE) return { side: "B", t: 1 - h / OVERLAY_ZONE };
-      if (h >= 1 - OVERLAY_ZONE)
-        return { side: "A", t: (h - (1 - OVERLAY_ZONE)) / OVERLAY_ZONE };
-    }
-    return null;
-  };
+  const closingSide = () =>
+    closingSideFor(vClipRef.current, hClipRef.current, vOnRef.current, hOnRef.current);
 
   // Push clip planes + opacity onto each side's materials. A fragment is kept
   // only if inside ALL planes, so with both curtains on you get a quadrant
@@ -943,26 +999,7 @@ function CompareScene({ uploadsByDate, initialDate }) {
   }, [vOn, hOn, updateClip]);
 
   // ── Date / model selection ────────────────────────────────────────────────────
-  const modelOptions = (dateStr) => {
-    const u = uploadsByDate[dateStr];
-    if (!u) return [];
-    const opts = [];
-    const total = (u.bim?.length || 0) + (u.pc?.length || 0);
-    if (total > 1) opts.push({ value: "all", label: `All models (${total})` });
-    (u.bim || []).forEach((it, i) =>
-      opts.push({
-        value: `bim:${i}`,
-        label: `BIM · ${it.description || it.file?.split("/").pop() || "model"}`,
-      }),
-    );
-    (u.pc || []).forEach((it, i) =>
-      opts.push({
-        value: `pc:${i}`,
-        label: `Point Cloud · ${it.description || it.file?.split("/").pop() || "cloud"}`,
-      }),
-    );
-    return opts;
-  };
+  const modelOptions = (dateStr) => modelOptionsFor(uploadsByDate, dateStr);
 
   const onPickDate = (s) => (dateStr) => {
     const opts = modelOptions(dateStr);
@@ -980,14 +1017,10 @@ function CompareScene({ uploadsByDate, initialDate }) {
   const autoPickedRef = useRef(false);
   useEffect(() => {
     if (autoPickedRef.current) return;
-    const dates = Object.keys(uploadsByDate).sort();
-    if (!dates.length) return;
+    const picked = autoPickDates(uploadsByDate, initialDate);
+    if (!picked) return;
     autoPickedRef.current = true;
-    const a =
-      initialDate && uploadsByDate[initialDate]
-        ? initialDate
-        : dates[Math.max(0, dates.length - 2)];
-    const b = [...dates].reverse().find((d) => d !== a);
+    const { a, b } = picked;
     onPickDate("A")(a);
     if (b) onPickDate("B")(b);
     // eslint-disable-next-line
@@ -1456,7 +1489,7 @@ function CompareScene({ uploadsByDate, initialDate }) {
   );
 }
 
-function overlayLabel(side, color) {
+export function overlayLabel(side, color) {
   return {
     position: "absolute",
     top: 8,
@@ -1540,17 +1573,7 @@ export default function AnalyticsPage({
       API.get(`projects/${projectId}/pointcloud/`),
     ])
       .then(([bimRes, pcRes]) => {
-        const byDate = {};
-        const merge = (items, type) => {
-          (items || []).forEach((item) => {
-            if (!item.date) return;
-            if (!byDate[item.date]) byDate[item.date] = { bim: [], pc: [] };
-            byDate[item.date][type].push(item);
-          });
-        };
-        merge(bimRes.data, "bim");
-        merge(pcRes.data, "pc");
-        setUploadsByDate(byDate);
+        setUploadsByDate(groupUploadsByDate(bimRes.data, pcRes.data));
       })
       .catch((e) => {
         console.error("[Analytics] could not fetch uploads", e);

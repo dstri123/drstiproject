@@ -246,7 +246,14 @@ export default function PhotoUpload() {
       setSelectedZipFile(null);
       return true;
     } catch (err) {
-      error(err.response?.data?.zip_file?.[0] || "Failed to upload ZIP file.");
+      // The backend sends zip_file errors as a plain string (not a DRF list),
+      // and a 403 as {error}; indexing [0] would show only the first letter.
+      const zipError = err.response?.data?.zip_file;
+      error(
+        (Array.isArray(zipError) ? zipError[0] : zipError) ||
+          err.response?.data?.error ||
+          "Failed to upload ZIP file.",
+      );
       return false;
     }
   };

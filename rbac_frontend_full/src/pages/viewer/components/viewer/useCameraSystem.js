@@ -757,14 +757,17 @@ export default function useCameraSystem(sceneData, modelData, props) {
       let expectingPose = true;
 
       text.split("\n").forEach((line) => {
-        if (!line.trim() || line.startsWith("#")) return;
+        if (line.startsWith("#")) return;
 
         if (!expectingPose) {
           // This is the POINTS2D line for the previous image — skip it and
-          // resume expecting a pose line on the next data line.
+          // resume expecting a pose line on the next data line. It is EMPTY
+          // for an image with no 2D points (pose-only exports), so blank
+          // lines must be consumed here, not skipped before this check.
           expectingPose = true;
           return;
         }
+        if (!line.trim()) return;
 
         const p = line.trim().split(/\s+/);
         if (p.length < 10) return; // malformed pose line, keep waiting
@@ -953,6 +956,8 @@ export default function useCameraSystem(sceneData, modelData, props) {
           previewRendererRef.current = new THREE.WebGLRenderer({
             canvas,
             antialias: true,
+            // "Download 3-D view" reads this canvas with toDataURL().
+            preserveDrawingBuffer: true,
           });
         const pr = previewRendererRef.current;
         pr.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1396,8 +1401,37 @@ export default function useCameraSystem(sceneData, modelData, props) {
     // eslint-disable-next-line
   }, [rendererRef?.current?.domElement, cameraRef]);
 
+  // ── EXPORT camera positions (sidebar "Export Camera Positions") ──────────
+  // Downloads every camera's current world pose as camera_positions.json.
+  const exportCameraPositions = useCallback(() => {
+    const cams = camerasRef.current.filter(Boolean);
+    if (!cams.length) {
+      alert("No cameras loaded.");
+      return;
+    }
+    const data = cams.map((cam) => ({
+      name: cam.userData.imageName,
+      position: cam.position.toArray(),
+      quaternion: cam.quaternion.toArray(),
+      fov: cam.fov,
+      manual: !!cam.userData.isManual,
+    }));
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "camera_positions.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
   // ── window exposure ───────────────────────────────────────────────────────
   useEffect(() => {
+    window.exportCameraPositions = exportCameraPositions;
     window.handleCameraFolderUpload = handleCameraFolderUpload;
     window.handleCameraMatrixUpload = handleCameraMatrixUpload;
     window.applyCameraMatrix = applyCameraMatrix;
@@ -1405,6 +1439,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     window.addBubbleCameraManually = addBubbleCameraManually;
     window.toggleCameraPath = toggleCameraPath;
   }, [
+    exportCameraPositions,
     handleCameraFolderUpload,
     handleCameraMatrixUpload,
     applyCameraMatrix,

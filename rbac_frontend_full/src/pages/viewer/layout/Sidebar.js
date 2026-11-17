@@ -91,6 +91,9 @@ export default function ContextPanel(props) {
   const [activeMode, setActiveMode] = useState(null);
   // Import/Apply Matrix is an advanced/interop feature — collapsed by default.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Matrix parsed from the "Upload Matrix (.json)" drop zone, applied by the
+  // "Apply Matrix" button.
+  const [importedMatrix, setImportedMatrix] = useState(null);
   // Published by useAlignment (window event) — busy flag + current result.
   const [autoAlign, setAutoAlign] = useState(() => window.autoAlignState || {});
   useEffect(() => {
@@ -171,7 +174,7 @@ export default function ContextPanel(props) {
         />
         <SectionLabel text="Point Cloud" />
         <UploadZone
-          label="Upload PointCloud (.ply / .las / .laz / .plz)"
+          label="Upload PointCloud (.ply / .las / .laz / .plz / .e57 / .pts / .xyz)"
           accept=".ply,.las,.laz,.plz,.e57,.pts,.xyz"
           onFileSelected={setPointFile}
           disabled={uploadDisabled}
@@ -751,7 +754,12 @@ export default function ContextPanel(props) {
 
         {advancedOpen && (
           <div style={{ marginTop: 4 }}>
-            <MatrixDropZone />
+            <MatrixDropZone
+              onMatrixLoaded={(m) => {
+                setImportedMatrix(m);
+                info("Matrix loaded — click Apply Matrix to apply it.");
+              }}
+            />
             <div style={{ marginTop: 6 }}>
               <ToolBtn
                 label="Apply Matrix"
@@ -759,7 +767,11 @@ export default function ContextPanel(props) {
                 inactiveColor="var(--tool-export)"
                 inactiveBorder="var(--tool-export-border)"
                 onClick={() => {
-                  window.applyUploadedMatrix?.();
+                  if (!importedMatrix) {
+                    info("Upload a matrix (.json) file first.");
+                    return;
+                  }
+                  window.applyUploadedMatrix?.(importedMatrix);
                   window.clearMarkers?.();
                   window.setPickingMode?.(null);
                   setActiveMode(null);
@@ -1359,7 +1371,7 @@ function UploadZone({ label, accept, onFileSelected, disabled = false }) {
   );
 }
 
-function MatrixDropZone() {
+function MatrixDropZone({ onMatrixLoaded }) {
   return (
     <div>
       <div
@@ -1401,12 +1413,13 @@ function MatrixDropZone() {
           const reader = new FileReader();
           reader.onload = (ev) => {
             try {
-              window.applyUploadedMatrix?.(JSON.parse(ev.target.result));
+              onMatrixLoaded?.(JSON.parse(ev.target.result));
             } catch {
               alert("Invalid JSON file");
             }
           };
           reader.readAsText(file);
+          e.target.value = "";
         }}
       />
     </div>
@@ -1451,7 +1464,7 @@ function CameraFolderZone() {
         multiple
         accept="image/*"
         style={{ display: "none" }}
-        onChange={(e) => window.handleCameraFolderUpload(e.target.files)}
+        onChange={(e) => window.handleCameraFolderUpload?.(e.target.files)}
       />
     </div>
   );

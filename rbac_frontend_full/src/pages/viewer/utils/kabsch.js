@@ -78,6 +78,14 @@ export function kabschAlgorithm(source, target) {
 
   const denom = numeric.sum(A.map((row) => numeric.dot(row, row)));
 
+  // All source points at one spot (e.g. the same point picked three times):
+  // the scale would be 0/0 = NaN and wipe out the model's transform.
+  if (!(denom > 1e-12)) {
+    throw new Error(
+      "Kabsch needs distinct points — the picked points are all at the same location",
+    );
+  }
+
   const scale = sumS / denom;
 
   /* ---------------------------------------------------

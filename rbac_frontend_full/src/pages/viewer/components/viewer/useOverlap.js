@@ -33,7 +33,6 @@ export function buildBimVoxels(bimModel) {
     if (!c.isMesh || !c.geometry?.attributes?.position) return;
     const geom = c.geometry;
     const expressIDAttr = geom.attributes?.expressID;
-    const indexArray = geom.index?.array;
     const pos = geom.attributes.position;
 
     if (expressIDAttr) {
@@ -45,14 +44,15 @@ export function buildBimVoxels(bimModel) {
     const stride = Math.max(1, Math.floor(pos.count / 150000));
 
     for (let vi = 0; vi < pos.count; vi += stride) {
-      const vertexIndex = indexArray ? indexArray[vi] : vi;
       v.set(pos.getX(vi), pos.getY(vi), pos.getZ(vi)).applyMatrix4(m);
       const key = cellKey(v);
       occupied.add(key);
 
       let elemIdx = null;
       if (expressIDAttr) {
-        const expressID = expressIDAttr.array[vertexIndex];
+        // expressID is a per-vertex attribute, like position — read it at the
+        // same vertex (index[vi] is an unrelated vertex in indexed geometry).
+        const expressID = expressIDAttr.array[vi];
         if (expressID == null) continue;
         elemIdx = elemExpressIdToIndex.get(expressID);
         if (elemIdx == null) {

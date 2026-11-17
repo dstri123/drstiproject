@@ -454,11 +454,11 @@ export default function EditOrganization() {
               </div>
             </div>
 
-            {editErrors.form && (
+            {(editErrors.form || editErrors.email) && (
               <div className="rounded-lg border border-red-300 bg-red-50 p-3">
                 <p className="text-xs text-red-900 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4" />
-                  {editErrors.form}
+                  {editErrors.form || editErrors.email}
                 </p>
               </div>
             )}
