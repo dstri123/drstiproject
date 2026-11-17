@@ -276,7 +276,7 @@ def read_ascii_points(path, max_points=400000):
                     rows.append((float(parts[0]), float(parts[1]), float(parts[2])))
                 except ValueError:
                     continue
-    pts = np.array(rows, dtype=np.float64)
+    pts = np.array(rows, dtype=np.float64).reshape(-1, 3)
     if len(pts) > max_points:
         rng = np.random.default_rng(_content_subsample_seed(pts, max_points))
         idx = rng.choice(len(pts), max_points, replace=False)

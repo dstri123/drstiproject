@@ -394,7 +394,14 @@ def rotation_between(a, b):
     v = np.cross(a, b)
     c = float(a @ b)
     if np.linalg.norm(v) < 1e-9:
-        return np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+        if c > 0:
+            return np.eye(3)
+        # Antiparallel: half-turn about an axis perpendicular to a (the X axis
+        # when possible, i.e. diag(1, -1, -1) for a = ±Y or ±Z).
+        k = np.array([1.0, 0.0, 0.0]) if abs(a[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+        k = k - (k @ a) * a
+        k /= np.linalg.norm(k)
+        return 2.0 * np.outer(k, k) - np.eye(3)
     K = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
     return np.eye(3) + K + K @ K / (1 + c)
 

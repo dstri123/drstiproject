@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.shortcuts import get_object_or_404
+from django.http import Http404
 
 from accounts.permissions import RolePermission
 from accounts.models import User
@@ -29,6 +30,7 @@ from .models import BIMData, PointCloudData, ProjectImage
 from .serializers import BIMDataSerializer, PointCloudDataSerializer, ProjectImageSerializer
 from django.core.files.base import ContentFile
 from django.utils.text import get_valid_filename
+from django.utils.dateparse import parse_date
 import zipfile
 import os
 
@@ -43,6 +45,19 @@ def user_can_upload_to_project(user, project):
     return ProjectUser.objects.filter(project=project, user=user).exists()
 
 
+def is_valid_date(value):
+    try:
+        return parse_date(str(value)) is not None
+    except ValueError:
+        return False
+
+
+def delete_replaced_file(field_file, old_name):
+    """Remove the previous physical file after an update replaced it."""
+    if old_name and field_file.name != old_name:
+        field_file.storage.delete(old_name)
+
+
 class CreateProjectUserView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -54,6 +69,9 @@ class CreateProjectUserView(APIView):
 
             if not username or not password or not sub_role:
                 return Response({"error": "Missing required fields"}, status=400)
+
+            if User.objects.filter(username=username).exists():
+                return Response({"error": "Username already exists"}, status=400)
 
             # 🔥 FIX HERE
             user = User.objects.create_user(
@@ -160,6 +178,7 @@ class CreateProjectView(APIView):
                  latitude=latitude,
                  longitude=longitude,
                  footprint_area=footprint_area,
+                 image=request.FILES.get("image"),
                  )
 
             return Response({
@@ -191,8 +210,8 @@ class ProjectListView(APIView):
     "description": p.description,
     "start": p.start,
     "end": p.end,
-    "latitude": str(p.latitude) if p.latitude else None,
-    "longitude": str(p.longitude) if p.longitude else None,
+    "latitude": str(p.latitude) if p.latitude is not None else None,
+    "longitude": str(p.longitude) if p.longitude is not None else None,
     "altitude": p.altitude,
     "scale": p.scale,
     "zoom": p.zoom,
@@ -279,10 +298,12 @@ class UpdateProjectView(APIView):
             if footprint_area is not None:
                 project.footprint_area = footprint_area
 
+            old_image = project.image.name
             if request.FILES.get("image"):
                 project.image = request.FILES["image"]
 
             project.save()
+            delete_replaced_file(project.image, old_image)
 
             image_url = None
             if project.image and hasattr(project.image, 'url'):
@@ -297,14 +318,16 @@ class UpdateProjectView(APIView):
                 "description": project.description,
                 "start": project.start,
                 "end": project.end,
-                "latitude": str(project.latitude) if project.latitude else None,
-                "longitude": str(project.longitude) if project.longitude else None,
+                "latitude": str(project.latitude) if project.latitude is not None else None,
+                "longitude": str(project.longitude) if project.longitude is not None else None,
                 "altitude": project.altitude,
                 "scale": project.scale,
                 "zoom": project.zoom,
                 "footprint_area": project.footprint_area,
             })
 
+        except Http404:
+            raise
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 # 👥 LIST USERS
@@ -415,6 +438,8 @@ class AssignUserToProjectView(APIView):
 
             return Response({"message": "Users assigned ✅"})
 
+        except Http404:
+            raise
         except Exception as e:
             return Response({"error": str(e)}, status=500)
         
@@ -441,6 +466,8 @@ class RemoveUserFromProjectView(APIView):
 
             return Response({"message": "User removed ✅"})
 
+        except Http404:
+            raise
         except Exception as e:
             return Response({"error": str(e)}, status=500)
 
@@ -456,11 +483,27 @@ class DeleteProjectView(APIView):
             # 🔥 delete all relations
             ProjectUser.objects.filter(project=project).delete()
 
+            # The cascade only deletes the rows, so collect the uploaded files
+            # now and remove them once the rows are really gone.
+            files = []
+            for model, field in ((BIMData, "file"), (PointCloudData, "file"), (ProjectImage, "image"),
+                                 (CameraFile, "file"), (MatrixFile, "file"), (GaussianFile, "file")):
+                for obj in model.objects.filter(project=project):
+                    if getattr(obj, field):
+                        files.append(getattr(obj, field))
+            if project.image:
+                files.append(project.image)
+
             # 🔥 delete project
             project.delete()
 
+            for f in files:
+                f.storage.delete(f.name)
+
             return Response({"message": "Project deleted ✅"})
 
+        except Http404:
+            raise
         except Exception as e:
             return Response({"error": str(e)}, status=500)
         
@@ -490,6 +533,8 @@ class UpdateUserRoleView(APIView):
                 "new_role": sub_role
             })
 
+        except Http404:
+            raise
         except Exception as e:
             return Response({"error": str(e)}, status=500)
         
@@ -524,6 +569,9 @@ class ProjectImageView(APIView):
 
         if not zip_file:
             return Response({"zip_file": "This field is required."}, status=400)
+
+        if upload_date and not is_valid_date(upload_date):
+            return Response({"date": "Enter a valid date (YYYY-MM-DD)."}, status=400)
 
         if not zipfile.is_zipfile(zip_file):
             return Response({"zip_file": "Upload must be a valid ZIP file."}, status=400)
@@ -667,7 +715,8 @@ class CameraUpdateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def put(self, request, pk):
-        cam = CameraFile.objects.get(id=pk)
+        cam = get_object_or_404(CameraFile, id=pk)
+        old_file = cam.file.name
         serializer = CameraFileSerializer(cam, data=request.data, partial=True)
         is_latest = as_bool(request.data.get("is_latest"))
 
@@ -677,6 +726,7 @@ class CameraUpdateView(APIView):
                     project=cam.project, batch_name=cam.batch_name
                 ).exclude(id=cam.id).update(is_latest=False)
             serializer.save()
+            delete_replaced_file(serializer.instance.file, old_file)
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
@@ -746,7 +796,8 @@ class MatrixUpdateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def put(self, request, pk):
-        mat = MatrixFile.objects.get(id=pk)
+        mat = get_object_or_404(MatrixFile, id=pk)
+        old_file = mat.file.name
         serializer = MatrixFileSerializer(mat, data=request.data, partial=True)
         is_latest = as_bool(request.data.get("is_latest"))
 
@@ -756,6 +807,7 @@ class MatrixUpdateView(APIView):
                     project=mat.project, batch_name=mat.batch_name
                 ).exclude(id=mat.id).update(is_latest=False)
             serializer.save()
+            delete_replaced_file(serializer.instance.file, old_file)
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
@@ -900,7 +952,8 @@ class BIMUpdateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def put(self, request, pk):
-        bim = BIMData.objects.get(id=pk)
+        bim = get_object_or_404(BIMData, id=pk)
+        old_file = bim.file.name
         serializer = BIMDataSerializer(bim, data=request.data, partial=True)
         is_latest = as_bool(request.data.get("is_latest"))
 
@@ -908,6 +961,7 @@ class BIMUpdateView(APIView):
             if is_latest:
                 BIMData.objects.filter(project=bim.project).exclude(id=bim.id).update(is_latest=False)
             serializer.save()
+            delete_replaced_file(serializer.instance.file, old_file)
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
@@ -917,7 +971,8 @@ class PointCloudUpdateView(APIView):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def put(self, request, pk):
-        pc = PointCloudData.objects.get(id=pk)
+        pc = get_object_or_404(PointCloudData, id=pk)
+        old_file = pc.file.name
         serializer = PointCloudDataSerializer(pc, data=request.data, partial=True)
         is_latest = as_bool(request.data.get("is_latest"))
 
@@ -925,6 +980,7 @@ class PointCloudUpdateView(APIView):
             if is_latest:
                 PointCloudData.objects.filter(project=pc.project).exclude(id=pc.id).update(is_latest=False)
             serializer.save()
+            delete_replaced_file(serializer.instance.file, old_file)
             return Response(serializer.data)
 
         return Response(serializer.errors, status=400)
@@ -939,6 +995,8 @@ class EnvironmentalDataView(APIView):
         data = EnvironmentalData.objects.filter(project_id=project_id)
         date = request.query_params.get("date")
         if date:
+            if not is_valid_date(date):
+                return Response({"date": "Enter a valid date (YYYY-MM-DD)."}, status=400)
             data = data.filter(date=date)
         serializer = EnvironmentalDataSerializer(data.order_by("-date", "-id"), many=True)
         return Response(serializer.data)
@@ -951,6 +1009,8 @@ class EnvironmentalDataView(APIView):
         date = request.data.get("date")
         if not date:
             return Response({"date": "This field is required."}, status=400)
+        if not is_valid_date(date):
+            return Response({"date": "Enter a valid date (YYYY-MM-DD)."}, status=400)
 
         existing = EnvironmentalData.objects.filter(project=project, date=date).first()
         serializer = EnvironmentalDataSerializer(existing, data=request.data)

@@ -17,6 +17,8 @@ import uuid
 from datetime import datetime
 from threading import Thread
 from django.conf import settings
+from django.core.files import File
+from django.utils import timezone
 
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -130,9 +132,7 @@ class ValidationView(APIView):
                 return Response({'error': 'BIM file not found'}, status=404)
 
             with open(bim.file.path, 'rb') as f:
-                f.name = os.path.basename(bim.file.name)
-                f.size = os.path.getsize(bim.file.path)
-                results = validate_bim_upload(f)
+                results = validate_bim_upload(File(f, name=os.path.basename(bim.file.name)))
 
             # Persist diagnostics
             DiagnosticReport.objects.filter(bim_data=bim).delete()
@@ -151,9 +151,7 @@ class ValidationView(APIView):
                 return Response({'error': 'Point cloud not found'}, status=404)
 
             with open(pc.file.path, 'rb') as f:
-                f.name = os.path.basename(pc.file.name)
-                f.size = os.path.getsize(pc.file.path)
-                results = validate_pointcloud_upload(f)
+                results = validate_pointcloud_upload(File(f, name=os.path.basename(pc.file.name)))
 
             DiagnosticReport.objects.filter(point_data=pc).delete()
             for d in results:
@@ -210,9 +208,12 @@ class ModelBoundsView(APIView):
             if key not in data:
                 return Response({'error': f'Missing field: {key}'}, status=400)
 
-        xmin, xmax = float(data['xmin']), float(data['xmax'])
-        ymin, ymax = float(data['ymin']), float(data['ymax'])
-        zmin, zmax = float(data['zmin']), float(data['zmax'])
+        try:
+            xmin, xmax = float(data['xmin']), float(data['xmax'])
+            ymin, ymax = float(data['ymin']), float(data['ymax'])
+            zmin, zmax = float(data['zmin']), float(data['zmax'])
+        except (TypeError, ValueError):
+            return Response({'error': 'Bounds must be numbers'}, status=400)
 
         span = max(xmax - xmin, ymax - ymin, zmax - zmin)
         center_x = (xmin + xmax) / 2
@@ -408,9 +409,9 @@ class ProcessingJobDetailView(APIView):
                 setattr(job, field, request.data[field])
 
         if request.data.get('status') == 'running' and not job.started_at:
-            job.started_at = datetime.now()
+            job.started_at = timezone.now()
         if request.data.get('status') in ('completed', 'failed', 'cancelled'):
-            job.completed_at = datetime.now()
+            job.completed_at = timezone.now()
 
         job.save()
         return Response(ProcessingJobSerializer(job).data)
@@ -453,9 +454,9 @@ class DiagnosticsView(APIView):
             from projects.models import Project
             try:
                 project = Project.objects.get(pk=project_id)
-                results = run_project_checks(project)
-            except Exception:
+            except (Project.DoesNotExist, ValueError):
                 return Response({'error': 'Project not found'}, status=404)
+            results = run_project_checks(project)
 
         else:
             return Response({'error': 'Provide bim_data_id, point_data_id, or project_id'}, status=400)
@@ -923,8 +924,12 @@ class ProgressAnalyzeView(APIView):
 
         bim_id = request.data.get("bim_id")
         pc_id = request.data.get("pointcloud_id")
-        threshold = float(request.data.get("threshold") or 0.15)
-        built_coverage = float(request.data.get("built_coverage") or BUILT_COVERAGE)
+        try:
+            threshold = float(request.data.get("threshold") or 0.15)
+            built_coverage = float(request.data.get("built_coverage") or BUILT_COVERAGE)
+        except (TypeError, ValueError):
+            return Response({"error": "threshold and built_coverage must be numbers"},
+                            status=status.HTTP_400_BAD_REQUEST)
         if not bim_id or not pc_id:
             return Response({"error": "bim_id and pointcloud_id are required"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -1094,12 +1099,12 @@ class ProgressSaveView(APIView):
         rows = [
             ProgressElement(
                 assessment=assessment,
-                element_id=e.get("element_id", ""),
-                element_type=e.get("element_type", ""),
-                category=e.get("category", ""),
+                element_id=str(e.get("element_id") or "")[:120],
+                element_type=str(e.get("element_type") or "")[:80],
+                category=str(e.get("category") or "")[:40],
                 level=(e.get("level") or "")[:255],
                 level_elevation=e.get("level_elevation"),
-                name=e.get("name", ""),
+                name=str(e.get("name") or "")[:255],
                 bim_volume=e.get("bim_volume", 0.0),
                 bim_points=e.get("bim_points", 0),
                 overlap_points=e.get("overlap_points", 0),
@@ -1288,7 +1293,7 @@ class OverlapSnapshotSaveView(APIView):
         raw_map = d.get("overlap_points_by_express_id") or {}
         try:
             overlap_map = {str(k): int(v) for k, v in raw_map.items()}
-        except (TypeError, ValueError):
+        except (AttributeError, TypeError, ValueError):
             return Response({"error": "overlap_points_by_express_id must map expressID -> count"},
                             status=status.HTTP_400_BAD_REQUEST)
 
