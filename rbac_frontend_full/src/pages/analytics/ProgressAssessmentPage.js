@@ -52,7 +52,7 @@ const STATUS_META = {
   incomplete: { label: "Incomplete", color: "#dc2626", bg: "#fef2f2" },
 };
 
-function fmtDate(d) {
+export function fmtDate(d) {
   return d || "—";
 }
 
@@ -183,7 +183,7 @@ const CHART_METRICS = [
 // Attach per-category element status counts (completed / in_progress /
 // not_started) derived from the element list. Elements are grouped by their
 // `category` (e.g. "Beams") — the same key the backend uses for `categories`.
-function withElementCounts(categories, elements) {
+export function withElementCounts(categories, elements) {
   const counts = {};
   (elements || []).forEach((e) => {
     const cat = e.category || e.element_type || "Other";
@@ -201,18 +201,18 @@ function withElementCounts(categories, elements) {
 }
 
 // "850 / 1,375 completed (61.8%)"
-function completedLabel(completed, total) {
+export function completedLabel(completed, total) {
   const pct = total ? (completed / total) * 100 : 0;
   return `${(completed || 0).toLocaleString()} / ${(total || 0).toLocaleString()} completed (${pct.toFixed(2)}%)`;
 }
 
 // Percentage with up to 2 decimals: 51.43%, 7.15%, 100%.
-function fmtPct(v) {
+export function fmtPct(v) {
   return `${Math.round((v || 0) * 100) / 100}%`;
 }
 
 // Round a max value up to a "nice" number so axis ticks read cleanly.
-function niceCeil(v) {
+export function niceCeil(v) {
   if (!v || v <= 0) return 1;
   const exp = Math.floor(Math.log10(v));
   const base = Math.pow(10, exp);
@@ -226,7 +226,7 @@ function niceCeil(v) {
 }
 
 // Darken/lighten a "#rrggbb" color by `amt` (-100..100).
-function shade(hex, amt) {
+export function shade(hex, amt) {
   const n = hex.replace("#", "");
   const num = parseInt(n, 16);
   let r = (num >> 16) + Math.round((amt / 100) * 255);
@@ -238,7 +238,7 @@ function shade(hex, amt) {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
-function downloadBlob(blob, filename) {
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -249,7 +249,7 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function exportCategoriesToCSV(rows, metricKey) {
+export function exportCategoriesToCSV(rows, metricKey) {
   const headers = [
     "Category",
     "Count",
@@ -284,7 +284,7 @@ function exportCategoriesToCSV(rows, metricKey) {
   );
 }
 
-function roundRectPath(ctx, x, y, w, h, r) {
+export function roundRectPath(ctx, x, y, w, h, r) {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x, y + h);
@@ -298,7 +298,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
 
 // Renders the current view to an offscreen canvas (no external deps) and
 // downloads it as a PNG.
-function exportChartToPNG(data, metric) {
+export function exportChartToPNG(data, metric) {
   const W = Math.max(720, data.length * 70 + 160);
   const H = 460;
   const scale = 2;
@@ -1097,11 +1097,11 @@ function KPICardsRow({ summary, categories, history }) {
 }
 
 // ─── Completion gauge (0–100% semicircular arc) ─────────────────────────────
-function polarToCartesian(cx, cy, r, angleDeg) {
+export function polarToCartesian(cx, cy, r, angleDeg) {
   const a = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
 }
-function describeArc(cx, cy, r, startAngle, endAngle) {
+export function describeArc(cx, cy, r, startAngle, endAngle) {
   const start = polarToCartesian(cx, cy, r, endAngle);
   const end = polarToCartesian(cx, cy, r, startAngle);
   const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
@@ -1113,7 +1113,7 @@ const LEVEL_META = {
   medium: { key: "medium", label: "Medium Completion", color: "#d97706", icon: AlertCircle },
   low: { key: "low", label: "Low Completion", color: "#dc2626", icon: AlertTriangle },
 };
-function levelFor(value) {
+export function levelFor(value) {
   if (value >= 70) return LEVEL_META.high;
   if (value >= 40) return LEVEL_META.medium;
   return LEVEL_META.low;

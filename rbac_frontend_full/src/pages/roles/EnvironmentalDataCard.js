@@ -11,21 +11,25 @@ const todayStr = () => new Date().toISOString().split("T")[0];
 
 // Same ordering the viewer uses for cameras, so rows line up with the
 // camera markers / camera data table there.
-function naturalCompare(a, b) {
+export function naturalCompare(a, b) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
 // Camera ids are the image NAME tokens of COLMAP images.txt pose lines —
 // the same key the viewer's camera markers use (cam.userData.imageName).
-function parseCameraNames(text) {
+export function parseCameraNames(text) {
   const names = [];
   let expectingPose = true;
   text.split("\n").forEach((line) => {
-    if (!line.trim() || line.startsWith("#")) return;
+    if (line.startsWith("#")) return;
     if (!expectingPose) {
-      expectingPose = true; // skip the POINTS2D line after each pose line
+      // Skip the POINTS2D line after each pose line. It is EMPTY for images
+      // with no 2D points (pose-only exports), so blank lines must be consumed
+      // here — same rule as the viewer's parser in useCameraSystem.js.
+      expectingPose = true;
       return;
     }
+    if (!line.trim()) return;
     const p = line.trim().split(/\s+/);
     if (p.length < 10) return;
     if (!/[A-Za-z]|\.[A-Za-z0-9]+$/.test(p[9])) return;
@@ -37,7 +41,7 @@ function parseCameraNames(text) {
 
 // Pick the camera file for `date`: that day's latest, else any upload that
 // day, else the project's overall latest so contributors still get rows.
-function pickCameraFile(files, date) {
+export function pickCameraFile(files, date) {
   const sameDay = files.filter((f) => String(f.date) === date);
   return (
     sameDay.find((f) => f.is_latest) ||

@@ -185,6 +185,9 @@ export default function AdminProfile() {
       if (res.data?.access) {
         localStorage.setItem("token", res.data.access);
       }
+      if (res.data?.refresh) {
+        localStorage.setItem("refresh", res.data.refresh);
+      }
 
       const newAvatarUrl = res.data?.avatar_url || form.avatar_url;
 

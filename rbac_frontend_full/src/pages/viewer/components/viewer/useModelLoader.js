@@ -397,15 +397,17 @@ function subsampleGeometry(geometry, retainRatio) {
   const colors = geometry.attributes.color;
   const normals = geometry.attributes.normal;
   const total = positions.count;
-  const step = Math.max(1, Math.round(1 / retainRatio));
-  const kept = Math.ceil(total / step);
+  // Keep `retainRatio` of the points, spread evenly. (An integer stride of
+  // round(1 / retainRatio) is 1 for any ratio above 2/3, i.e. it kept every
+  // point for the 0.7 default.)
+  const kept = Math.min(total, Math.max(1, Math.floor(total * retainRatio)));
 
   const newPos = new Float32Array(kept * 3);
   const newCol = colors ? new Float32Array(kept * 3) : null;
   const newNrm = normals ? new Float32Array(kept * 3) : null;
 
-  let out = 0;
-  for (let i = 0; i < total; i += step) {
+  for (let out = 0; out < kept; out++) {
+    const i = Math.floor((out * total) / kept);
     const s = i * 3,
       d = out * 3;
     newPos[d] = positions.array[s];
@@ -421,7 +423,6 @@ function subsampleGeometry(geometry, retainRatio) {
       newNrm[d + 1] = normals.array[s + 1];
       newNrm[d + 2] = normals.array[s + 2];
     }
-    out++;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -962,6 +963,10 @@ export default function useModelLoader(sceneData, props) {
 
     let objectUrl = null;
     let isCancelled = false;
+    // Size of the data actually loaded. Remote project files ({ url, name })
+    // carry no `size`, so fall back to the converted blob's size or the
+    // download's Content-Length (PLYLoader progress) for the 700 MB check.
+    let loadedBytes = 0;
 
     const loadPoints = async () => {
       try {
@@ -995,6 +1000,7 @@ export default function useModelLoader(sceneData, props) {
             throw new Error(msg);
           }
           objectUrl = URL.createObjectURL(res.data);
+          loadedBytes = res.data?.size || 0;
         }
 
         if (!objectUrl) {
@@ -1008,17 +1014,17 @@ export default function useModelLoader(sceneData, props) {
           return;
         }
 
-        const needsCompress = pointFile.size > COMPRESSION_THRESHOLD_BYTES;
-
         new PLYLoader().load(
           objectUrl,
           (geometry) => {
             // Do NOT call computeVertexNormals() on point clouds
 
+            const sizeBytes = pointFile.size || loadedBytes;
+            const needsCompress = sizeBytes > COMPRESSION_THRESHOLD_BYTES;
             let finalGeo = geometry;
             if (needsCompress) {
               console.info(
-                `[PLY] ${(pointFile.size / 1024 / 1024).toFixed(0)} MB > 700 MB — subsampling to ${(RETAIN_RATIO * 100).toFixed(0)}%`,
+                `[PLY] ${(sizeBytes / 1024 / 1024).toFixed(0)} MB > 700 MB — subsampling to ${(RETAIN_RATIO * 100).toFixed(0)}%`,
               );
               finalGeo = subsampleGeometry(geometry, RETAIN_RATIO);
               geometry.dispose();
@@ -1131,7 +1137,10 @@ export default function useModelLoader(sceneData, props) {
             URL.revokeObjectURL(objectUrl);
             setIsLoadingPc(false);
           },
-          undefined,
+          (event) => {
+            const bytes = event?.total || event?.loaded;
+            if (bytes > loadedBytes) loadedBytes = bytes;
+          },
           (err) => {
             console.error("PLY load error:", err);
             const message =

@@ -12,14 +12,14 @@ const HEIGHT = 120;
 const PAD = { top: 8, right: 6, bottom: 6, left: 36 };
 const GRADIENT_STOPS = [0, 0.25, 0.5, 0.75, 1];
 
-const fmt = (v) =>
+export const fmt = (v) =>
   Math.abs(v) >= 1000 || (Math.abs(v) < 0.01 && v !== 0)
     ? v.toExponential(1)
     : +v.toFixed(2);
 
 // Monotone cubic (Fritsch–Carlson) path: smooth like a wave, but never
 // overshoots above/below the actual data points.
-function smoothPath(pts) {
+export function smoothPath(pts) {
   if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]}`;
   const n = pts.length;
   const dx = [];

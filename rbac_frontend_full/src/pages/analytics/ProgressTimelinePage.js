@@ -12,13 +12,13 @@ const STATUS_COLORS = {
   not_started: "#dc2626",
 };
 
-function fmtDate(d) {
+export function fmtDate(d) {
   return d || "No date";
 }
 
 // Label for a timeline entry — a period label when the entry represents a
 // grouped week/month/year, otherwise the scan date itself.
-function dateLabel(d) {
+export function dateLabel(d) {
   return d.label || fmtDate(d.pointcloud_date);
 }
 
@@ -34,17 +34,17 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 // Parse "YYYY-MM-DD" as a UTC date so week/month bucketing isn't shifted by
 // the viewer's timezone.
-function parseISODate(s) {
+export function parseISODate(s) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || "");
   return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
 }
 
-function isoDay(dt) {
+export function isoDay(dt) {
   return dt.toISOString().slice(0, 10);
 }
 
 // Bucket key + display label for a date under the given period.
-function periodOf(dt, mode) {
+export function periodOf(dt, mode) {
   if (mode === "year") {
     const y = dt.getUTCFullYear();
     return { key: `${y}`, label: `${y}` };
@@ -64,7 +64,7 @@ function periodOf(dt, mode) {
 // yearly views, each period is represented by its latest scan that has a saved
 // assessment (progress is cumulative, so the latest scan is the period's
 // end-state). Entries without a scan date can't be placed in a period.
-function applyViewMode(dates, mode) {
+export function applyViewMode(dates, mode) {
   const dated = dates.filter((d) => parseISODate(d.pointcloud_date));
   if (mode === "all") return dates;
   if (mode === "last3") return (dated.length ? dated : dates).slice(-3);
@@ -91,19 +91,19 @@ function applyViewMode(dates, mode) {
 }
 
 // Percentage with up to 2 decimals: 51.43%, 7.15%, 100%.
-function fmtPct(v) {
+export function fmtPct(v) {
   return `${Math.round((v || 0) * 100) / 100}%`;
 }
 
-function fmtNum(n) {
+export function fmtNum(n) {
   return (n || 0).toLocaleString();
 }
 
-function catOf(d, cat) {
+export function catOf(d, cat) {
   return (d.categories || []).find((x) => x.category === cat);
 }
 
-function deltaText(delta) {
+export function deltaText(delta) {
   if (delta == null) return "";
   return delta === 0 ? "no change" : `${delta > 0 ? "+" : "−"}${fmtNum(Math.abs(delta))}`;
 }
@@ -127,7 +127,7 @@ function DeltaBadge({ delta, small }) {
   );
 }
 
-function downloadBlob(blob, filename) {
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -138,7 +138,7 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function roundRectPath(ctx, x, y, w, h, r) {
+export function roundRectPath(ctx, x, y, w, h, r) {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x, y + h);
@@ -167,7 +167,7 @@ function drawLegend(ctx, items, x, y) {
 // Renders the status-by-date chart to an offscreen canvas (no external
 // deps, matching the app's existing chart-export convention) and downloads
 // it as a PNG.
-function exportStatusChartToPNG(dates) {
+export function exportStatusChartToPNG(dates) {
   const W = Math.max(640, dates.length * 130 + 140);
   const H = 400;
   const scale = 2;
@@ -270,7 +270,7 @@ function exportStatusChartToPNG(dates) {
 
 // Renders the category small-multiples chart to an offscreen canvas and
 // downloads it as a PNG.
-function exportCategoryChartsToPNG(dates, categories) {
+export function exportCategoryChartsToPNG(dates, categories) {
   const cols = Math.min(4, Math.max(1, categories.length));
   const cellW = 260;
   const cellH = 190;
@@ -479,7 +479,7 @@ function Tip({ tip }) {
 
 // Props that wire an element to the shared tooltip for both pointer and
 // keyboard users. `build()` returns the tooltip content (minus x/y).
-function tipHandlers(setTip, build) {
+export function tipHandlers(setTip, build) {
   return {
     tabIndex: 0,
     onPointerMove: (e) => setTip({ ...build(), x: e.clientX, y: e.clientY }),
@@ -492,20 +492,20 @@ function tipHandlers(setTip, build) {
   };
 }
 
-const pctOf = (n, total) => (total ? ((n || 0) / total) * 100 : 0);
+export const pctOf = (n, total) => (total ? ((n || 0) / total) * 100 : 0);
 
-function changeLine(delta, prevLabel, noun = "completed") {
+export function changeLine(delta, prevLabel, noun = "completed") {
   if (delta == null) return "First date in view — nothing to compare yet.";
   if (delta === 0) return `No change in ${noun} vs ${prevLabel}.`;
   return `${delta > 0 ? "+" : "−"}${fmtNum(Math.abs(delta))} ${noun} vs ${prevLabel}`;
 }
 
-function prevIndexWith(dates, i, has) {
+export function prevIndexWith(dates, i, has) {
   for (let j = Math.min(i, dates.length) - 1; j >= 0; j--) if (dates[j] && has(dates[j])) return j;
   return -1;
 }
 
-function statusTip(d, prev) {
+export function statusTip(d, prev) {
   const s = d.summary;
   if (!s) {
     return { title: dateLabel(d), subtitle: d.subLabel, footer: "No saved assessment for this date yet." };
@@ -530,7 +530,7 @@ function statusTip(d, prev) {
   };
 }
 
-function categoryTip(cat, d, prev) {
+export function categoryTip(cat, d, prev) {
   const c = catOf(d, cat);
   if (!c) return { title: cat, subtitle: dateLabel(d), footer: "No data for this category on this date." };
   const p = prev ? catOf(prev, cat) : null;
@@ -1457,10 +1457,14 @@ export default function ProgressTimelinePage() {
           setProjectName(proj.project_name);
         } else if (leadingId != null) {
           setProjectId(leadingId);
+        } else {
+          // Unknown project: nothing to load — don't spin forever.
+          setLoading(false);
         }
       })
       .catch(() => {
         if (leadingId != null) setProjectId(leadingId);
+        else setLoading(false);
       });
   }, [slug, leadingId]);
 

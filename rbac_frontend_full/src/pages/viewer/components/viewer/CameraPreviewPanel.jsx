@@ -1,5 +1,3 @@
-CameraPreviewPanel.js;
-
 import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 import {
@@ -718,7 +716,7 @@ export default function CameraPreviewPanel({
                         background: "#f97316",
                       }}
                     />
-                    Segmentated
+                    Segmented
                   </div>
                 )}
               </>

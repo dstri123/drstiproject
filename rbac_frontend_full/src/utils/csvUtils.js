@@ -22,8 +22,11 @@ export const exportContributorsToCSV = (contributors) => {
     ...rows.map((row) =>
       row
         .map((cell) =>
-          typeof cell === "string" && cell.includes(",")
-            ? `"${cell}"`
+          // RFC 4180: quote cells containing a comma, quote or newline, and
+          // double any embedded quotes (previously only commas were handled,
+          // so a value with a quote produced a broken row).
+          typeof cell === "string" && /[",\r\n]/.test(cell)
+            ? `"${cell.replace(/"/g, '""')}"`
             : cell
         )
         .join(",")
@@ -80,6 +83,10 @@ export const parseCSVFile = (file) => {
         }
 
         // Parse data rows
+        // Read each field by its header position, so columns may come in any order.
+        const col = Object.fromEntries(requiredHeaders.map((h) => [h, headers.indexOf(h)]));
+        const lastCol = Math.max(...Object.values(col));
+
         const contributors = [];
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -87,17 +94,17 @@ export const parseCSVFile = (file) => {
 
           const values = parseCSVLine(line);
 
-          if (values.length < 5) {
+          if (values.length <= lastCol) {
             reject(`Row ${i + 1} has missing columns`);
             return;
           }
 
           contributors.push({
-            username: values[0].trim(),
-            email: values[1].trim(),
-            first_name: values[2].trim(),
-            last_name: values[3].trim(),
-            role: normalizeRole(values[4].trim()),
+            username: values[col["username"]].trim(),
+            email: values[col["email"]].trim(),
+            first_name: values[col["first name"]].trim(),
+            last_name: values[col["last name"]].trim(),
+            role: normalizeRole(values[col["role"]].trim()),
           });
         }
 
@@ -124,7 +131,10 @@ const parseCSVLine = (line) => {
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
 
-    if (char === '"') {
+    if (char === '"' && insideQuotes && line[i + 1] === '"') {
+      current += '"'; // escaped quote ("")
+      i++;
+    } else if (char === '"') {
       insideQuotes = !insideQuotes;
     } else if (char === "," && !insideQuotes) {
       values.push(current);

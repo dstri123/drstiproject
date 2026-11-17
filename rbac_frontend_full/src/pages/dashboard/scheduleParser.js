@@ -274,7 +274,7 @@ async function parseXLSX(buffer) {
 
 function parseJSON(text) {
   const data = JSON.parse(text);
-  const list = Array.isArray(data) ? data : data.activities;
+  const list = Array.isArray(data) ? data : data?.activities;
   if (!Array.isArray(list)) throw new Error("JSON must contain an 'activities' array.");
   const records = list.map((a) => {
     const rec = {};

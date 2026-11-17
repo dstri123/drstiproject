@@ -75,7 +75,7 @@ function dropLegacySchedule(key) {
 }
 
 // Server record -> the shape the dashboard renders.
-const fromServer = (d) =>
+export const fromServer = (d) =>
   d && {
     fileName: d.file_name,
     uploadedAt: d.uploaded_at,
@@ -84,7 +84,7 @@ const fromServer = (d) =>
     meta: d.meta || {},
   };
 
-const saveErrorMessage = (e) =>
+export const saveErrorMessage = (e) =>
   e.response?.data?.error ||
   e.response?.data?.activities?.[0] ||
   (e.response?.status === 400 || e.response?.status === 413
@@ -97,7 +97,7 @@ function utcToday() {
 }
 
 // Planned % complete as of today, by elapsed workdays.
-function plannedPct(a, today) {
+export function plannedPct(a, today) {
   const s = parseDay(a.start);
   const f = parseDay(a.finish);
   if (today < s) return 0;
@@ -132,7 +132,7 @@ const PROGRESS_STYLE = {
 
 // Compares measured % (latest scan) with planned % *on that scan's date*,
 // so an old scan isn't judged against today's plan.
-function progressState(a) {
+export function progressState(a) {
   const act = a.actual;
   if (!act || act.match === "none") return { label: "Not mapped" };
   if (!act.matched) return { label: "No scan data" };
@@ -744,7 +744,7 @@ export default function ProjectDashboardPage() {
                   return notice("The latest Progress Assessment was saved before floors were recorded. Re-run it to match activities by level.");
                 if (unmatchedLevels.length)
                   return notice(
-                    `${unmatchedLevels.length} schedule level${unmatchedLevels.length === 1 ? "" : "s"} (${unmatchedLevels.slice(0, 4).join(", ")}${unmatchedLevels.length > 4 ? "…" : ""}) don't match any floor in the model.`,
+                    `${unmatchedLevels.length} schedule level${unmatchedLevels.length === 1 ? "" : "s"} (${unmatchedLevels.slice(0, 4).join(", ")}${unmatchedLevels.length > 4 ? "…" : ""}) ${unmatchedLevels.length === 1 ? "doesn't" : "don't"} match any floor in the model.`,
                     <ToolbarButton label="Map levels" onClick={() => setLevelMapOpen(true)} />,
                   );
                 if (Object.keys(progress.level_map || {}).length)
