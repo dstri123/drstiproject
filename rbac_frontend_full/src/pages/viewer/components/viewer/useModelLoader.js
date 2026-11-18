@@ -1091,6 +1091,11 @@ export default function useModelLoader(sceneData, props) {
             // as the cloud randomly "disappearing". It's small enough that
             // skipping frustum culling costs nothing visually.
             points.frustumCulled = false;
+            // Raw file coords -> geometry coords is `raw - geomCentroid`, so the
+            // live raw -> world matrix is matrixWorld * translate(-geomCentroid)
+            // (used by the section-box "Export PLY", which crops the original
+            // upload on the server).
+            points.userData.geomCentroid = geomCentroid.clone();
             if (pointFile?.transform) {
               applySavedTransform(points, pointFile.transform);
             } else {
