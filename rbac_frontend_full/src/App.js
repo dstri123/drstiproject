@@ -11,7 +11,6 @@ import OrganizationManagement from "./pages/admin/OrganizationManagement";
 import EditOrganization from "./pages/admin/EditOrganization";
 
 // Admin
-import AdminDashboard from "./pages/admin/Dashboard";
 import Projects from "./pages/admin/Projects";
 import CreateProject from "./pages/admin/CreateProject";
 import EditProject from "./pages/admin/EditProject";
@@ -78,7 +77,8 @@ export default function App() {
             <Route path="/superadmin/create-admin" element={<Navigate to="/superadmin/organizations/create" replace />} />
 
           {/* Admin */}
-          <Route path="/admin" element={<AdminDashboard />} />
+          {/* No admin dashboard page: /admin (viewer header, breadcrumbs) opens Project Setup. */}
+          <Route path="/admin" element={<Navigate to="/admin/projects" replace />} />
           <Route path="/admin/projects" element={<Projects />} />
           <Route path="/admin/projects/create" element={<CreateProject />} />
           <Route path="/admin/projects/:slug/edit" element={<EditProject />} />

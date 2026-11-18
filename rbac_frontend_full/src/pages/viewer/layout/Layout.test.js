@@ -38,24 +38,32 @@ test("renders header, toolbar and children with no panel open", () => {
 
 test("toolbar opens, switches, toggles and closes the context panel", async () => {
   renderLayout("project_manager");
-  await userEvent.click(screen.getByTitle("Models"));
+  await userEvent.click(screen.getByRole("button", { name: "Models" }));
   expect(screen.getByText("panel:models")).toBeInTheDocument();
   expect(mockPanel.props.bimFile).toEqual({ name: "a.ifc" });
   expect(mockPanel.props.role).toBe("project_manager");
 
-  await userEvent.click(screen.getByTitle("Cameras"));
+  await userEvent.click(screen.getByRole("button", { name: "Cameras" }));
   expect(screen.getByText("panel:cameras")).toBeInTheDocument();
 
-  await userEvent.click(screen.getByTitle("Cameras"));
+  await userEvent.click(screen.getByRole("button", { name: "Cameras" }));
   expect(screen.queryByTestId("panel")).not.toBeInTheDocument();
 
-  await userEvent.click(screen.getByTitle("Upload Files"));
+  await userEvent.click(screen.getByRole("button", { name: "Upload Files" }));
   await userEvent.click(screen.getByText("close-panel"));
   expect(screen.queryByTestId("panel")).not.toBeInTheDocument();
 });
 
 test("viewer role gets no Picking/Alignment tools", () => {
   renderLayout("viewer");
-  expect(screen.queryByTitle("Picking")).not.toBeInTheDocument();
-  expect(screen.queryByTitle("Alignment")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Picking" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Alignment" })).not.toBeInTheDocument();
+});
+
+test("icons in the viewer get the dark icon-bar tooltip on hover", async () => {
+  renderLayout();
+  await userEvent.hover(screen.getByRole("button", { name: "Cameras" }));
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Cameras");
+  await userEvent.unhover(screen.getByRole("button", { name: "Cameras" }));
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 });

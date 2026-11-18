@@ -59,47 +59,38 @@ describe("navigation buttons", () => {
 
   test("Viewer button opens the project viewer from elsewhere", async () => {
     renderAt("/analytics/7_Tower", { projectSlug: "7_Tower" });
-    await userEvent.hover(screen.getByTitle("Viewer"));
-    expect(screen.getByText("Open Viewer")).toBeInTheDocument();
-    await userEvent.click(screen.getByTitle("Viewer"));
+    await userEvent.click(screen.getByTitle("Open Viewer"));
     expect(screen.getByTestId("where")).toHaveTextContent("/viewer/7_Tower");
   });
 
   test("Viewer button on the viewer page goes back", async () => {
     renderAt("/viewer/7_Tower", { projectSlug: "7_Tower" });
-    await userEvent.hover(screen.getByTitle("Viewer"));
-    expect(screen.getByText("Close Viewer")).toBeInTheDocument();
-    await userEvent.click(screen.getByTitle("Viewer"));
+    await userEvent.click(screen.getByTitle("Close Viewer"));
     expect(screen.getByTestId("where")).toHaveTextContent(/^\/admin$/);
   });
 
   test("Analytics opens the project's analytics page", async () => {
     renderAt("/viewer/7_Tower", { projectSlug: "7_Tower" });
-    await userEvent.hover(screen.getByTitle("Analytics"));
-    expect(screen.getByText("Open Analytics")).toBeInTheDocument();
-    await userEvent.click(screen.getByTitle("Analytics"));
+    await userEvent.click(screen.getByTitle("Open Analytics"));
     expect(screen.getByTestId("where")).toHaveTextContent("/analytics/7_Tower");
   });
 
   test("Analytics on the analytics page returns to the viewer", async () => {
     renderAt("/analytics/7_Tower", { projectSlug: "7_Tower" });
-    await userEvent.hover(screen.getByTitle("Analytics"));
-    expect(screen.getByText("Close Analytics")).toBeInTheDocument();
-    await userEvent.click(screen.getByTitle("Analytics"));
+    await userEvent.click(screen.getByTitle("Close Analytics"));
     expect(screen.getByTestId("where")).toHaveTextContent("/viewer/7_Tower");
   });
 
   test("without a slug Analytics goes to the bare analytics route", async () => {
     renderAt("/tools");
-    await userEvent.click(screen.getByTitle("Analytics"));
+    await userEvent.click(screen.getByTitle("Open Analytics"));
     expect(screen.getByTestId("where")).toHaveTextContent("/analytics/");
   });
 
-  test("hovering a tool shows its tooltip", async () => {
+  test("every icon carries its tooltip text as title + accessible name", () => {
     renderAt("/viewer/7_Tower", { projectSlug: "7_Tower" });
-    await userEvent.hover(screen.getByTitle("Cameras"));
-    expect(screen.getByText("Cameras")).toBeInTheDocument();
-    await userEvent.unhover(screen.getByTitle("Cameras"));
-    expect(screen.queryByText("Cameras")).not.toBeInTheDocument();
+    for (const name of ["Close Viewer", "Upload Files", "Models", "Cameras", "Issues", "Open Analytics"]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute("title", name);
+    }
   });
 });

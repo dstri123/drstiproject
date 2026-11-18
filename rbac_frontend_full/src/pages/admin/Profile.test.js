@@ -10,7 +10,6 @@ jest.mock("../../api/axios", () => ({
 jest.mock("../../layouts/Topbar", () => () => null);
 const mockToast = { success: jest.fn(), error: jest.fn() };
 jest.mock("../../components/ToastContainer", () => ({ useToast: () => mockToast }));
-jest.mock("../../utils/passwordGenerator", () => ({ generateStrongPassword: () => "Gen3rated!Pw" }));
 
 const PROFILE = {
   username: "admin1",
@@ -74,20 +73,21 @@ test("load failure without message uses fallback", async () => {
   expect(await screen.findByText("Failed to load profile. Please log in again.")).toBeInTheDocument();
 });
 
-test("save is disabled with an empty name or mismatched passwords", async () => {
+test("save is disabled with an empty name", async () => {
   const user = userEvent.setup();
   await renderLoaded();
   await user.clear(screen.getByLabelText("First name *"));
   expect(saveBtn()).toBeDisabled();
   await user.type(screen.getByLabelText("First name *"), "Ann");
-  await user.type(screen.getByLabelText("New Password"), "abc");
-  expect(saveBtn()).toBeDisabled(); // confirm missing
-  await user.type(screen.getByLabelText("Confirm Password"), "abd");
-  expect(saveBtn()).toBeDisabled();
-  await user.clear(screen.getByLabelText("Confirm Password"));
-  await user.type(screen.getByLabelText("Confirm Password"), "abc");
-  expect(screen.getByText("Passwords match")).toBeInTheDocument();
   expect(saveBtn()).toBeEnabled();
+});
+
+test("there is no Security / password section", async () => {
+  await renderLoaded();
+  expect(screen.queryByText("Security")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("New Password")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Confirm Password")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /generate/i })).not.toBeInTheDocument();
 });
 
 test("save sends multipart profile/update/, dispatches profileUpdated, and stores profile", async () => {
@@ -105,7 +105,7 @@ test("save sends multipart profile/update/, dispatches profileUpdated, and store
   expect(fd.get("first_name")).toBe("Ann");
   expect(fd.get("last_name")).toBe("Smith");
   expect(fd.get("bio")).toBe("hello");
-  expect(fd.get("password")).toBe("");
+  expect(fd.has("password")).toBe(false); // profile save never changes the password
   expect(fd.has("email")).toBe(false); // only superadmin sends email
   expect(fd.has("avatar")).toBe(false);
   await waitFor(() => expect(mockToast.success).toHaveBeenCalledWith("Profile updated successfully!"));
@@ -116,30 +116,16 @@ test("save sends multipart profile/update/, dispatches profileUpdated, and store
   window.removeEventListener("profileUpdated", listener);
 });
 
-// Regression: the backend re-issues both tokens on a password change; only
-// the access token was stored, leaving a stale refresh token.
-test("password change stores the new access AND refresh tokens and clears the fields", async () => {
+// The backend may re-issue tokens on save; both must be stored.
+test("stores re-issued access AND refresh tokens", async () => {
   const user = userEvent.setup();
   localStorage.setItem("token", "old-a");
   localStorage.setItem("refresh", "old-r");
   API.put.mockResolvedValue({ data: { access: "new-a", refresh: "new-r" } });
   await renderLoaded();
-  await user.click(screen.getByRole("button", { name: /generate/i }));
-  expect(screen.getByLabelText("New Password")).toHaveValue("Gen3rated!Pw");
-  expect(screen.getByLabelText("Confirm Password")).toHaveValue("Gen3rated!Pw");
   await user.click(saveBtn());
-  expect(API.put.mock.calls[0][1].get("password")).toBe("Gen3rated!Pw");
   await waitFor(() => expect(localStorage.getItem("token")).toBe("new-a"));
   expect(localStorage.getItem("refresh")).toBe("new-r");
-  expect(screen.getByLabelText("New Password").value).toBe("");
-});
-
-test("show/hide password", async () => {
-  const user = userEvent.setup();
-  await renderLoaded();
-  const pw = screen.getByLabelText("New Password");
-  await user.click(pw.parentElement.querySelector("button"));
-  expect(pw).toHaveAttribute("type", "text");
 });
 
 test.each([

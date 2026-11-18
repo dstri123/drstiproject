@@ -77,6 +77,13 @@ export default function IconToolbar({
       ? id === "analytics" && isAnalytics
       : activePanel === id;
     const isHovered = hovered === id;
+    // Shown by the viewer-wide tooltip (layout/ViewerTooltip.js).
+    const tip =
+      id === "analytics"
+        ? isAnalytics
+          ? "Close Analytics"
+          : "Open Analytics"
+        : label;
 
     const handleClick = () => {
       if (isNav) handleNavClick(navItem);
@@ -108,7 +115,8 @@ export default function IconToolbar({
 
         <button
           onClick={handleClick}
-          title={label}
+          title={tip}
+          aria-label={tip}
           style={{
             width: "100%",
             height: 40,
@@ -131,34 +139,6 @@ export default function IconToolbar({
           <Icon size={16} strokeWidth={isActive ? 2.2 : 1.8} />
         </button>
 
-        {/* Tooltip */}
-        {isHovered && (
-          <div
-            style={{
-              position: "absolute",
-              left: 50,
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "#1f2937",
-              color: "#f9fafb",
-              padding: "4px 10px",
-              borderRadius: 5,
-              fontSize: 11,
-              fontWeight: 500,
-              whiteSpace: "nowrap",
-              zIndex: 200,
-              boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-              pointerEvents: "none",
-              letterSpacing: "0.01em",
-            }}
-          >
-            {id === "analytics"
-              ? isAnalytics
-                ? "Close Analytics"
-                : "Open Analytics"
-              : label}
-          </div>
-        )}
       </div>
     );
   };
@@ -189,7 +169,8 @@ export default function IconToolbar({
       >
         <button
           onClick={handleViewerClick}
-          title="Viewer"
+          title={isViewerPage ? "Close Viewer" : "Open Viewer"}
+          aria-label={isViewerPage ? "Close Viewer" : "Open Viewer"}
           style={{
             width: "100%",
             height: 40,
@@ -209,29 +190,6 @@ export default function IconToolbar({
           <Eye size={16} strokeWidth={1.8} />
         </button>
 
-        {hovered === "viewer" && (
-          <div
-            style={{
-              position: "absolute",
-              left: 50,
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "#1F2937",
-              color: "#F9FAFB",
-              padding: "4px 10px",
-              borderRadius: 5,
-              fontSize: 11,
-              fontWeight: 500,
-              whiteSpace: "nowrap",
-              zIndex: 200,
-              boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-              pointerEvents: "none",
-              letterSpacing: "0.01em",
-            }}
-          >
-            {isViewerPage ? "Close Viewer" : "Open Viewer"}
-          </div>
-        )}
       </div>
       {items.map((item) => renderButton({ ...item, isNav: false }))}
       {NAV_ITEMS.map((item) =>
