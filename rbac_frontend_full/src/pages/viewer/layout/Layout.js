@@ -1,18 +1,20 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import Header from './Header';
 import IconToolbar from './IconToolbar';
 import ContextPanel from './Sidebar';
+import ViewerTooltip from './ViewerTooltip';
 
 export default function Layout({ sidebarProps, children, projectSlug }) {
   const [activePanel, setActivePanel] = useState(null);
   const role = localStorage.getItem('role') || 'viewer';
+  const rootRef = useRef(null);
 
   const handleSelectPanel = (id) => {
     setActivePanel(prev => (prev === id ? null : id));
   };
 
   return (
-    <div style={{
+    <div ref={rootRef} style={{
       position: 'fixed',
       inset: 0,
       zIndex: 52,
@@ -22,6 +24,9 @@ export default function Layout({ sidebarProps, children, projectSlug }) {
       overflow: 'hidden',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
     }}>
+      {/* Every `title` inside the viewer shows as the dark icon-bar tooltip */}
+      <ViewerTooltip containerRef={rootRef} />
+
       {/* TOP HEADER */}
       <Header />
 

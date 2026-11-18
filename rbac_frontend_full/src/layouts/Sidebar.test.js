@@ -14,7 +14,7 @@ beforeEach(() => {
 
 const EXPECTED_MENU = {
   superadmin: ["Organizations", "Activity Log"],
-  admin: ["Dashboard", "Project Contributors", "Project Setup", "Activity Log"],
+  admin: ["Project Contributors", "Project Setup", "Activity Log"],
   project_manager: ["Dashboard", "Photo Folders"],
   project_engineer: ["Dashboard", "Photo Folders"],
   data_contributor: ["Projects", "Tools"],
@@ -68,10 +68,10 @@ describe("navigation and profile card", () => {
     const onClose = renderAt("admin", "/admin");
     await screen.findByText("Ada L");
     const nav = screen.getByRole("navigation");
-    expect(within(nav).getByRole("button", { name: "Dashboard" })).toHaveClass("bg-black");
+    expect(within(nav).queryByRole("button", { name: "Dashboard" })).not.toBeInTheDocument();
     await userEvent.click(within(nav).getByRole("button", { name: "Project Setup" }));
     expect(within(nav).getByRole("button", { name: "Project Setup" })).toHaveClass("bg-black");
-    expect(within(nav).getByRole("button", { name: "Dashboard" })).not.toHaveClass("bg-black");
+    expect(within(nav).getByRole("button", { name: "Project Contributors" })).not.toHaveClass("bg-black");
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
