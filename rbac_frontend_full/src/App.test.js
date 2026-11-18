@@ -21,7 +21,6 @@ jest.mock("./pages/auth/ForgotPassword", () => mockPage("ForgotPassword"));
 jest.mock("./pages/admin/CreateAdmin", () => mockPage("CreateAdmin"));
 jest.mock("./pages/admin/OrganizationManagement", () => mockPage("OrganizationManagement"));
 jest.mock("./pages/admin/EditOrganization", () => mockPage("EditOrganization"));
-jest.mock("./pages/admin/Dashboard", () => mockPage("AdminDashboard"));
 jest.mock("./pages/admin/Projects", () => mockPage("Projects"));
 jest.mock("./pages/admin/CreateProject", () => mockPage("CreateProject"));
 jest.mock("./pages/admin/EditProject", () => mockPage("EditProject"));
@@ -75,7 +74,7 @@ const ROUTES = [
   ["/superadmin/organizations", "OrganizationManagement", true],
   ["/superadmin/organizations/create", "CreateAdmin", true],
   ["/superadmin/organizations/5/edit", 'EditOrganization {"id":"5"}', true],
-  ["/admin", "AdminDashboard", true],
+  ["/admin", "Projects", true], // no admin dashboard: redirects to Project Setup
   ["/admin/projects", "Projects", true],
   ["/admin/projects/create", "CreateProject", true],
   ["/admin/projects/7_Tower/edit", 'EditProject {"slug":"7_Tower"}', true],

@@ -377,13 +377,29 @@ export default function EditProject() {
                   <Label htmlFor="image" className="text-xs font-semibold text-black">
                     Upload Image
                   </Label>
-                  <Input
-                    id="image"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    className="text-sm"
-                  />
+                  {/* File picker and Remove share one row */}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="image"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="text-sm flex-1 min-w-0"
+                    />
+                    {projectImagePreview && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        title="Remove Image"
+                        aria-label="Remove Image"
+                        className="shrink-0 hover:bg-red-50 hover:text-red-600"
+                        onClick={removeImage}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                   {errors.image && (
                     <p className="text-xs text-red-700 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
@@ -391,20 +407,6 @@ export default function EditProject() {
                     </p>
                   )}
                 </div>
-
-                {projectImagePreview && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    title="Remove Image"
-                    aria-label="Remove Image"
-                    className="hover:bg-red-50 hover:text-red-600"
-                    onClick={removeImage}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
               </div>
             </div>
 

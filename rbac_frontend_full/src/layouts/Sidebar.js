@@ -32,11 +32,6 @@ export default function Sidebar({ isOpen, onClose }) {
 
     admin: [
       {
-        label: "Dashboard",
-        path: "/admin",
-        icon: <LayoutDashboard className="w-5 h-5" />,
-      },
-      {
         label: "Project Contributors",
         path: "/admin/project-user",
         icon: <Users className="w-5 h-5" />,
