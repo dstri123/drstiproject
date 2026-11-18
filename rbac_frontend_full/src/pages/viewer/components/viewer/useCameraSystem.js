@@ -382,7 +382,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
     }
 
     const cams = camerasRef.current.filter((c) => !c.userData.isManual);
-   // Create red dots directly at the camera positions
+    // Create red dots directly at the camera positions
     const dotGroup = new THREE.Group();
 
     const dotGeo = new THREE.SphereGeometry(1, 12, 12);
@@ -573,7 +573,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
 
     return () => cancelAnimationFrame(raf);
   }, [cameraRef]);
-// crt
+  // crt
   // ── PARSE images.txt ──────────────────────────────────────────────────────
   // useEffect(() => {
   //   if (!cameraPositionsFile) {
@@ -1170,7 +1170,7 @@ export default function useCameraSystem(sceneData, modelData, props) {
   // dependency) and flip the actual line's visibility on toggle.
   useEffect(() => {
     cameraPathVisibleRef.current = cameraPathVisible;
-   // Camera path = red dots only
+    // Camera path = red dots only
     if (pathDotsRef.current) {
       pathDotsRef.current.visible = cameraPathVisible;
     }

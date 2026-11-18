@@ -72,3 +72,49 @@ test("Show box is hidden without a setter", () => {
   renderBar();
   expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
 });
+
+describe("Export PLY", () => {
+  test("is hidden without an export handler", () => {
+    renderBar();
+    expect(screen.queryByRole("button", { name: "Export PLY" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  test("exports in the chosen coordinate frame", async () => {
+    const onExportPly = jest.fn();
+    renderBar({ onExportPly });
+    await userEvent.click(screen.getByRole("button", { name: "Export PLY" }));
+    expect(onExportPly).toHaveBeenLastCalledWith("original");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Export coordinates" }),
+      "aligned",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Export PLY" }));
+    expect(onExportPly).toHaveBeenLastCalledWith("aligned");
+  });
+
+  test("is disabled while exporting or when blocked", () => {
+    const { rerender, setAxisClip, reset } = renderBar({
+      onExportPly: jest.fn(),
+      exportingPly: true,
+    });
+    expect(screen.getByRole("button", { name: "Exporting…" })).toBeDisabled();
+    expect(screen.getByRole("combobox")).toBeDisabled();
+    rerender(
+      <ClipBar
+        bounds={BOUNDS}
+        clip={CLIP}
+        setAxisClip={setAxisClip}
+        reset={reset}
+        onExportPly={jest.fn()}
+        exportDisabledReason="Only point clouds saved to the project can be exported."
+      />,
+    );
+    const btn = screen.getByRole("button", { name: "Export PLY" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute(
+      "title",
+      "Only point clouds saved to the project can be exported.",
+    );
+  });
+});

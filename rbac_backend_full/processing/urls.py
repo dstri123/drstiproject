@@ -8,6 +8,7 @@ from .views import (
     DiagnosticsView,
     AuditLogView,
     PointCloudToPLYView,
+    PointCloudExportView,
     ICPAlignView,
     AutoAlignView,
     OSMTileProxyView,
@@ -48,6 +49,8 @@ urlpatterns = [
 
     # LAS/LAZ/PTS/XYZ → PLY conversion for the 3D viewer
     path('tools/pointcloud-to-ply/', PointCloudToPLYView.as_view(), name='processing-pointcloud-to-ply'),
+    # Viewer "Export PLY": section-box crop of the original upload
+    path('tools/pointcloud-export/', PointCloudExportView.as_view(), name='processing-pointcloud-export'),
      # Backward-compatible alias for older frontend bundles.
      path('tools/pointcloud-to-play/', PointCloudToPLYView.as_view(), name='processing-pointcloud-to-play'),
 
