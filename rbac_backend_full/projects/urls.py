@@ -1,6 +1,8 @@
 from django.urls import path
 from .views import *
 from .views import CreateProjectUserView, ProjectListView, UserDetailView
+# Monthly merge lives with the other point-cloud processing code.
+from processing.views import PointCloudMergeView, PointCloudMergeDetailView
 
 
 urlpatterns = [
@@ -19,6 +21,8 @@ urlpatterns = [
     path("bim/<int:pk>/delete/", BIMDeleteView.as_view()),
     path("projects/<int:project_id>/pointcloud/", PointCloudDataView.as_view()),
     path("pointcloud/<int:pk>/delete/", PointCloudDeleteView.as_view()),
+    path("pointcloud/merge/", PointCloudMergeView.as_view()),
+    path("pointcloud/merge/<int:pk>/", PointCloudMergeDetailView.as_view()),
     path("projects/<int:project_id>/images/", ProjectImageView.as_view()),
     path("images/<int:pk>/delete/", ProjectImageDeleteView.as_view()),
     path("bim/<int:pk>/update/", BIMUpdateView.as_view()),

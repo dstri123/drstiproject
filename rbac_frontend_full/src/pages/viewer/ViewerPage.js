@@ -7,7 +7,14 @@ import React, {
 } from "react";
 import ReactDOM from "react-dom";
 import { useParams, useLocation } from "react-router-dom";
-import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+  Merge,
+  LoaderCircle,
+  X,
+} from "lucide-react";
 import { createProjectSlug, getProjectIdFromSlug } from "@/lib/utils";
 import API from "../../api/axios";
 import Layout from "./layout/Layout";
@@ -16,6 +23,11 @@ import { applyHiddenElements } from "./components/viewer/elementVisibility";
 import useIssues from "./issues/useIssues";
 import IssueFormModal from "./issues/IssueFormModal";
 import { useToast } from "../../components/ToastContainer";
+import MergePointCloudsDialog from "./merge/MergePointCloudsDialog";
+import useMonthlyMerge, {
+  isActiveMerge,
+  monthLabel,
+} from "./merge/useMonthlyMerge";
 
 export default function ViewerPage({
   projectSlug: projectSlugProp,
@@ -79,6 +91,18 @@ export default function ViewerPage({
   const [showCameras, setShowCameras] = useState(true);
   const [calOpen, setCalOpen] = useState(false);
   const calBtnRef = useRef(null);
+
+  // -------- MONTHLY MERGE --------
+  // Merging is a separate, explicit action (calendar "Merge Point Clouds"):
+  // picking a date never merges. A merged result is shown only when the user
+  // asks for it, and never replaces the date-wise uploads.
+  const [projectName, setProjectName] = useState("");
+  const [mergeDialog, setMergeDialog] = useState(null); // { year, month }
+  const [mergedView, setMergedView] = useState(null); // merge record on screen
+  const [dismissedMerges, setDismissedMerges] = useState(() => new Set());
+  // What was on screen before opening a merged cloud, to restore on exit.
+  const preMergePointRef = useRef(null);
+  const monthlyMerge = useMonthlyMerge({ projectId: id, toast });
 
   const resolveRemoteUrl = (fileUrl) => {
     if (!fileUrl) return null;
@@ -298,6 +322,9 @@ export default function ViewerPage({
       const resolvedId = project?.id ?? getProjectIdFromSlug(projectSlug);
       if (!resolvedId) return;
       setResolvedProjectId(resolvedId);
+      // Reloading shows the latest uploads again, not a merged cloud.
+      setMergedView(null);
+      preMergePointRef.current = null;
 
       // One failing list (e.g. images/) must not blank the whole viewer:
       // treat it as empty, keep loading the rest, and tell the user.
@@ -328,6 +355,7 @@ export default function ViewerPage({
           createProjectSlug(p) === projectSlug,
       );
       if (proj) {
+        setProjectName(proj.project_name || "");
         setProjectGeo({
           latitude: proj.latitude ?? null,
           longitude: proj.longitude ?? null,
@@ -437,11 +465,66 @@ export default function ViewerPage({
 
   const handleDateSelect = useCallback(
     (dateKey) => {
+      // Picking a date always shows only that date's uploads (leaving any
+      // merged view) — it never triggers a merge.
+      setMergedView(null);
+      preMergePointRef.current = null;
       setSelectedDate(dateKey);
       loadDateUploads(dateKey, uploadsByDate);
       setCalOpen(false);
     },
     [uploadsByDate],
+  );
+
+  const openMergeDialog = useCallback((year, month) => {
+    setCalOpen(false);
+    setMergeDialog({ year, month });
+  }, []);
+
+  // Open a merged result in the existing viewer. It is loaded as a plain
+  // remote PLY (with its viewer placement when the sources had saved
+  // alignments). latestPointItem is cleared so Save position / alignment
+  // pair / progress actions can never write onto an original upload.
+  const handleViewMerged = useCallback(
+    (merge) => {
+      const source = createRemoteSource(merge?.file_url, merge?.transform || null);
+      if (!source) {
+        toast.error("The merged point cloud file is not available.");
+        return;
+      }
+      if (!preMergePointRef.current) {
+        preMergePointRef.current = { pointFile, latestPointItem };
+      }
+      setPointFile({ ...source, merged: true, mergeId: merge.id });
+      setLatestPointItem(null);
+      setMergedView(merge);
+      setDismissedMerges((prev) => new Set(prev).add(merge.id));
+      setMergeDialog(null);
+    },
+    // createRemoteSource is a pure helper (no state), so it isn't listed.
+    [pointFile, latestPointItem, toast],
+  );
+
+  const exitMergedView = useCallback(() => {
+    const prev = preMergePointRef.current;
+    preMergePointRef.current = null;
+    setMergedView(null);
+    setPointFile(prev?.pointFile ?? null);
+    setLatestPointItem(prev?.latestPointItem ?? null);
+  }, []);
+
+  const dismissMerge = useCallback((mergeId) => {
+    setDismissedMerges((prev) => new Set(prev).add(mergeId));
+  }, []);
+
+  // Merge jobs of this project to surface beside the calendar button:
+  // running ones (progress) and finished ones not yet opened/dismissed.
+  const mergeChips = Object.values(monthlyMerge.jobs).filter(
+    (m) =>
+      String(m.project_id) === String(id) &&
+      (isActiveMerge(m) ||
+        (!dismissedMerges.has(m.id) &&
+          (m.status === "completed" || m.status === "failed"))),
   );
 
   const getTransformState = (model) => {
@@ -916,6 +999,9 @@ export default function ViewerPage({
 
             display: "flex",
             alignItems: "center",
+            flexWrap: "wrap",
+            gap: 6,
+            maxWidth: "calc(100% - 16px)",
 
             background: "transparent",
             border: "none",
@@ -952,6 +1038,67 @@ export default function ViewerPage({
             <CalendarDays size={12} />
             {selectedDate ? selectedDate : "Pick date"}
           </button>
+          {mergedView && (
+            <span style={chipStyle("#eff6ff", "#93c5fd", "#1d4ed8")}>
+              <Merge size={12} />
+              Merged · {monthLabel(mergedView.year, mergedView.month)}
+              <button
+                onClick={exitMergedView}
+                title="Back to the date-wise point cloud"
+                aria-label="Back to the date-wise point cloud"
+                style={chipIconButton}
+              >
+                <X size={12} />
+              </button>
+            </span>
+          )}
+          {mergeChips.map((m) => {
+            const label = monthLabel(m.year, m.month);
+            if (isActiveMerge(m)) {
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setMergeDialog({ year: m.year, month: m.month })}
+                  title={`Merging point clouds for ${label}: show progress`}
+                  style={{ ...chipStyle("#fff", "#cbd5e1", "#111827"), cursor: "pointer" }}
+                >
+                  <LoaderCircle size={12} className="animate-spin" />
+                  Merging {label} · {Math.round((m.progress || 0) * 100)}%
+                </button>
+              );
+            }
+            const ok = m.status === "completed";
+            return (
+              <span
+                key={m.id}
+                style={
+                  ok
+                    ? chipStyle("#ecfdf5", "#6ee7b7", "#065f46")
+                    : chipStyle("#fef2f2", "#fca5a5", "#b91c1c")
+                }
+              >
+                <button
+                  onClick={() =>
+                    ok
+                      ? handleViewMerged(m)
+                      : setMergeDialog({ year: m.year, month: m.month })
+                  }
+                  style={{ ...chipIconButton, gap: 4, fontWeight: 600 }}
+                >
+                  <Merge size={12} />
+                  {ok ? `View merged ${label}` : `Merge failed · ${label}`}
+                </button>
+                <button
+                  onClick={() => dismissMerge(m.id)}
+                  title="Dismiss"
+                  aria-label="Dismiss"
+                  style={chipIconButton}
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            );
+          })}
           {calOpen && (
             <MonthCalendar
               uploadsByDate={uploadsByDate}
@@ -960,9 +1107,27 @@ export default function ViewerPage({
               onClose={() => setCalOpen(false)}
               accent="#3b82f6"
               anchorEl={calBtnRef.current}
+              onMerge={openMergeDialog}
+              mergeJobFor={monthlyMerge.jobFor}
             />
           )}
         </div>
+        {mergeDialog && (
+          <MergePointCloudsDialog
+            key={`${mergeDialog.year}-${mergeDialog.month}`}
+            year={mergeDialog.year}
+            month={mergeDialog.month}
+            projectName={projectName}
+            job={monthlyMerge.jobFor(mergeDialog.year, mergeDialog.month)}
+            starting={monthlyMerge.isStarting(mergeDialog.year, mergeDialog.month)}
+            loadPreview={monthlyMerge.loadPreview}
+            onStart={({ force }) =>
+              monthlyMerge.startMerge(mergeDialog.year, mergeDialog.month, { force })
+            }
+            onView={handleViewMerged}
+            onClose={() => setMergeDialog(null)}
+          />
+        )}
 
         <ThreeViewer
           projectId={id}
@@ -1030,6 +1195,35 @@ export default function ViewerPage({
   );
 }
 
+// Small status pills beside the calendar button (merged view / merge jobs).
+const chipStyle = (background, border, color) => ({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  padding: "4px 8px",
+  borderRadius: 6,
+  border: `1px solid ${border}`,
+  background,
+  color,
+  fontSize: 11,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  minHeight: 28,
+  boxSizing: "border-box",
+});
+
+const chipIconButton = {
+  display: "inline-flex",
+  alignItems: "center",
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  margin: 0,
+  color: "inherit",
+  font: "inherit",
+  cursor: "pointer",
+};
+
 function MonthCalendar({
   uploadsByDate,
   selectedDate,
@@ -1037,6 +1231,8 @@ function MonthCalendar({
   onClose,
   accent,
   anchorEl,
+  onMerge,
+  mergeJobFor,
 }) {
   const popupRef = useRef(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -1059,13 +1255,13 @@ function MonthCalendar({
   useEffect(() => {
     if (!anchorEl) return;
     const rect = anchorEl.getBoundingClientRect();
-    const calH = 280;
+    const calH = onMerge ? 320 : 280;
     const top =
       rect.bottom + 6 + calH > window.innerHeight
         ? rect.top - calH - 6
         : rect.bottom + 6;
     setPos({ top, left: rect.left });
-  }, [anchorEl]);
+  }, [anchorEl, onMerge]);
 
   useEffect(() => {
     const onDown = (e) => {
@@ -1126,6 +1322,22 @@ function MonthCalendar({
 
   const hasUploads = (day) => uploadsByDate[dateKeyForDay(day)];
   const todayStr = dateToStr(new Date());
+
+  // One merge button for the whole viewed month (never per date).
+  const monthPrefix = `${year}-${String(monthIdx + 1).padStart(2, "0")}-`;
+  const monthPcCount = Object.entries(uploadsByDate).reduce(
+    (sum, [key, uploads]) =>
+      key.startsWith(monthPrefix) ? sum + (uploads?.pc?.length || 0) : sum,
+    0,
+  );
+  const monthJob = mergeJobFor?.(year, monthIdx + 1);
+  const merging = isActiveMerge(monthJob);
+  const mergeDisabled = merging || monthPcCount === 0;
+  const mergeTitle = merging
+    ? `Merging point clouds for ${monthLabel}…`
+    : monthPcCount === 0
+      ? `No point clouds uploaded in ${monthLabel}`
+      : `Merge the ${monthPcCount} point cloud${monthPcCount === 1 ? "" : "s"} of ${monthLabel} into one`;
 
   return ReactDOM.createPortal(
     <div
@@ -1193,6 +1405,54 @@ function MonthCalendar({
           <ChevronRight size={13} />
         </button>
       </div>
+
+      {onMerge && (
+        <button
+          onClick={() => !mergeDisabled && onMerge(year, monthIdx + 1)}
+          disabled={mergeDisabled}
+          title={mergeTitle}
+          aria-busy={merging}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            minHeight: 30,
+            marginBottom: 10,
+            borderRadius: 8,
+            border: `1px solid ${mergeDisabled ? "#e2e8f0" : accent}`,
+            background: mergeDisabled ? "#f8fafc" : "#eff6ff",
+            color: mergeDisabled ? "#94a3b8" : "#1d4ed8",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: mergeDisabled ? "default" : "pointer",
+          }}
+        >
+          {merging ? (
+            <LoaderCircle size={13} className="animate-spin" />
+          ) : (
+            <Merge size={13} />
+          )}
+          {merging
+            ? `Merging… ${Math.round((monthJob.progress || 0) * 100)}%`
+            : "Merge Point Clouds"}
+          {!merging && monthPcCount > 0 && (
+            <span
+              style={{
+                background: accent,
+                color: "#fff",
+                borderRadius: 999,
+                padding: "0 6px",
+                fontSize: 10,
+                lineHeight: "16px",
+              }}
+            >
+              {monthPcCount}
+            </span>
+          )}
+        </button>
+      )}
 
       <div
         style={{

@@ -1625,3 +1625,257 @@ class Schedule4DView(APIView):
             "actual": actual,
             "scan_date": scan_date,
         })
+
+
+# ─── Monthly point-cloud merge ────────────────────────────────────────────────
+
+def _merge_access(user, project, write=False):
+    """Project members (and admins) may see merges; read-only `viewer`
+    accounts may open a merged result but not start a merge."""
+    from projects.views import user_can_upload_to_project
+    if not user_can_upload_to_project(user, project):
+        return False
+    if write and "viewer" in (getattr(user, "sub_role", None), getattr(user, "role", None)):
+        return False
+    return True
+
+
+def _merge_period(data):
+    """((project_id, year, month), None) from request data, or (None, error)."""
+    try:
+        project_id = int(data.get("project_id"))
+        year = int(data.get("year"))
+        month = int(data.get("month"))
+    except (TypeError, ValueError):
+        return None, "project_id, year and month are required integers."
+    if not 1 <= month <= 12:
+        return None, "month must be between 1 and 12."
+    if not 1900 <= year <= 2200:
+        return None, "year is out of range."
+    return (project_id, year, month), None
+
+
+def _serialize_merge(m, request, current_fingerprint=None):
+    if m is None:
+        return None
+    file_url = None
+    if m.file:
+        try:
+            file_url = request.build_absolute_uri(m.file.url)
+        except Exception:
+            file_url = m.file.url
+    data = {
+        "id": m.id,
+        "merged_file_id": m.id,
+        "project_id": m.project_id,
+        "year": m.year,
+        "month": m.month,
+        "status": m.status,
+        "progress": m.progress,
+        "stage_label": m.stage_label,
+        "error_message": m.error_message,
+        "failed_sources": m.failed_sources,
+        "source_ids": [s["id"] for s in (m.source_snapshot or [])],
+        "sources": m.source_snapshot,
+        "excluded_sources": m.excluded_sources,
+        "total_source_files": m.total_source_files,
+        "file_url": file_url,
+        "file_name": os.path.basename(m.file.name) if m.file else None,
+        "file_size": m.file_size,
+        "point_count": m.point_count,
+        "input_point_count": m.input_point_count,
+        "voxel_size": m.voxel_size,
+        "coordinate_frame": m.coordinate_frame,
+        "reference_source_id": m.reference_source_id,
+        "transform": m.transform,
+        "origin_offset": m.origin_offset,
+        "registration": m.registration,
+        "min_fitness": m.min_fitness,
+        "max_rmse": m.max_rmse,
+        "created_by": m.created_by.username if m.created_by_id and m.created_by else None,
+        "created_at": m.created_at,
+        "started_at": m.started_at,
+        "completed_at": m.completed_at,
+    }
+    if current_fingerprint is not None:
+        data["is_stale"] = m.source_fingerprint != current_fingerprint
+    return data
+
+
+def _expire_stale_merges(project_id, year, month):
+    """A job whose worker died (server restart) stops sending heartbeats —
+    mark it failed so it doesn't block new merges forever."""
+    from datetime import timedelta
+    from .models import PointCloudMerge
+    from .pointcloud_merge import STALE_AFTER_SECONDS
+    cutoff = timezone.now() - timedelta(seconds=STALE_AFTER_SECONDS)
+    for job in PointCloudMerge.objects.filter(
+        project_id=project_id, year=year, month=month, status__in=("queued", "running"),
+    ):
+        last = job.heartbeat_at or job.created_at
+        if last < cutoff:
+            job.status = "failed"
+            job.stage_label = "Failed"
+            job.error_message = "The merge was interrupted (the server stopped). Start it again."
+            job.completed_at = timezone.now()
+            job.save(update_fields=["status", "stage_label", "error_message", "completed_at"])
+
+
+class PointCloudMergeView(APIView):
+    """
+    GET  /api/v1/pointcloud/merge/?project_id=&year=&month=
+         Preview: which files of that month would be merged, plus the latest
+         merge (running / completed / failed) and whether it is out of date.
+    POST /api/v1/pointcloud/merge/  {project_id, year, month, force?, voxel_size?}
+         Start a background merge (202). Returns the running job instead of
+         starting a duplicate, and the existing up-to-date result unless
+         `force` (regenerate) is set.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from projects.models import Project
+        from .models import PointCloudMerge
+        from . import pointcloud_merge as pm
+
+        period, err = _merge_period(request.query_params)
+        if err:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+        project_id, year, month = period
+        project = Project.objects.filter(pk=project_id).first()
+        if project is None:
+            return Response({"error": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _merge_access(request.user, project):
+            return Response({"error": "You are not assigned to this project."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        _expire_stale_merges(project_id, year, month)
+        pcs = pm.month_sources(project_id, year, month)
+        eligible, excluded, missing = pm.classify_sources(pcs)
+        fp = pm.fingerprint(pcs)
+        merges = PointCloudMerge.objects.filter(
+            project_id=project_id, year=year, month=month).select_related("created_by")
+        running = merges.filter(status__in=("queued", "running")).first()
+        latest = merges.first()
+        latest_completed = merges.filter(status="completed").first()
+        return Response({
+            "project_id": project.id,
+            "project_name": project.project_name,
+            "year": year,
+            "month": month,
+            "month_label": pm.month_label(year, month),
+            "output_name": pm.merged_file_name(year, month),
+            "sources": eligible,
+            "excluded_sources": excluded,
+            "missing_sources": missing,
+            "eligible_count": len(eligible),
+            "can_merge": _merge_access(request.user, project, write=True),
+            "running": _serialize_merge(running, request, fp),
+            "latest": _serialize_merge(latest, request, fp),
+            "latest_completed": _serialize_merge(latest_completed, request, fp),
+        })
+
+    def post(self, request):
+        from django.db import transaction
+        from projects.models import Project
+        from .models import PointCloudMerge
+        from . import pointcloud_merge as pm
+
+        period, err = _merge_period(request.data)
+        if err:
+            return Response({"error": err}, status=status.HTTP_400_BAD_REQUEST)
+        project_id, year, month = period
+        force = str(request.data.get("force", "")).lower() in ("1", "true", "yes", "on")
+        voxel_size = request.data.get("voxel_size")
+        if voxel_size not in (None, ""):
+            try:
+                voxel_size = float(voxel_size)
+                if not voxel_size > 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response({"error": "voxel_size must be a positive number."},
+                                status=status.HTTP_400_BAD_REQUEST)
+        else:
+            voxel_size = None
+
+        project = Project.objects.filter(pk=project_id).first()
+        if project is None:
+            return Response({"error": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _merge_access(request.user, project, write=True):
+            return Response({"error": "You do not have permission to merge point clouds "
+                                      "for this project."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        label = pm.month_label(year, month)
+        with transaction.atomic():
+            # Serialise merge requests per project so two clicks / tabs can't
+            # both pass the "already running?" check.
+            Project.objects.select_for_update().filter(pk=project_id).first()
+            _expire_stale_merges(project_id, year, month)
+
+            pcs = pm.month_sources(project_id, year, month)
+            eligible, excluded, missing = pm.classify_sources(pcs)
+            if missing:
+                return Response({
+                    "error": f"{len(missing)} point cloud file(s) for {label} are missing "
+                             "from storage. Re-upload or delete them, then merge again.",
+                    "failed_sources": missing,
+                }, status=status.HTTP_400_BAD_REQUEST)
+            if not eligible:
+                msg = (f"No point cloud files were uploaded in {label}." if not pcs else
+                       f"None of the point clouds uploaded in {label} are in a format "
+                       "the server can read (PLY, LAS, LAZ, PTS, XYZ).")
+                return Response({"error": msg, "excluded_sources": excluded},
+                                status=status.HTTP_400_BAD_REQUEST)
+
+            fp = pm.fingerprint(pcs)
+            merges = PointCloudMerge.objects.filter(project_id=project_id, year=year, month=month)
+            running = merges.filter(status__in=("queued", "running")).first()
+            if running:
+                return Response({"merge": _serialize_merge(running, request, fp),
+                                 "already_running": True}, status=status.HTTP_200_OK)
+            if not force and voxel_size is None:
+                done = merges.filter(status="completed", source_fingerprint=fp).first()
+                if done and done.file:
+                    return Response({"merge": _serialize_merge(done, request, fp),
+                                     "reused": True}, status=status.HTTP_200_OK)
+
+            eligible_ids = {s["id"] for s in eligible}
+            job = PointCloudMerge.objects.create(
+                project=project, year=year, month=month,
+                source_snapshot=eligible, source_fingerprint=fp,
+                excluded_sources=excluded, total_source_files=len(eligible),
+                requested_voxel_size=voxel_size,
+                created_by=request.user, stage_label="Queued",
+                heartbeat_at=timezone.now(),
+            )
+            job.sources.set([pc for pc in pcs if pc.id in eligible_ids])
+
+            if getattr(settings, "POINTCLOUD_MERGE_RUN_INLINE", False):
+                transaction.on_commit(lambda: pm.run_merge_job(job.id))
+            else:
+                transaction.on_commit(lambda: pm.start_merge_job(job.id))
+
+        job.refresh_from_db()
+        return Response({"merge": _serialize_merge(job, request, fp)},
+                        status=status.HTTP_202_ACCEPTED)
+
+
+class PointCloudMergeDetailView(APIView):
+    """GET /api/v1/pointcloud/merge/<id>/ — status polling and result."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        from .models import PointCloudMerge
+        from . import pointcloud_merge as pm
+
+        m = PointCloudMerge.objects.select_related("project", "created_by").filter(pk=pk).first()
+        if m is None:
+            return Response({"error": "Merge not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not _merge_access(request.user, m.project):
+            return Response({"error": "You are not assigned to this project."},
+                            status=status.HTTP_403_FORBIDDEN)
+        _expire_stale_merges(m.project_id, m.year, m.month)
+        m.refresh_from_db()
+        fp = pm.fingerprint(pm.month_sources(m.project_id, m.year, m.month))
+        return Response(_serialize_merge(m, request, fp))

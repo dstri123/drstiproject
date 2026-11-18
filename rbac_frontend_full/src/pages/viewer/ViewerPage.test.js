@@ -755,3 +755,159 @@ describe("issues", () => {
     await waitFor(() => expect(mockToast.error).toHaveBeenCalledWith("BCF export failed."));
   });
 });
+
+describe("monthly point-cloud merge", () => {
+  const MERGED = {
+    id: 21,
+    project_id: 7,
+    year: 2026,
+    month: 3,
+    status: "completed",
+    file_url: "/media/merged_pointclouds/project_7/March_2026_Merged_PointCloud.ply",
+    transform: { position: [9, 8, 7], quaternion: [0, 0, 0, 1], scale: [1, 1, 1] },
+    point_count: 5000,
+    total_source_files: 1,
+    voxel_size: 0.02,
+    is_stale: false,
+  };
+  const PREVIEW = {
+    project_name: "Tower",
+    output_name: "March_2026_Merged_PointCloud.ply",
+    sources: [{ id: 5, date: "2026-03-10", name: "cloud.ply", format: "PLY", has_saved_alignment: false }],
+    excluded_sources: [],
+    missing_sources: [],
+    eligible_count: 1,
+    can_merge: true,
+    running: null,
+    latest: MERGED,
+    latest_completed: MERGED,
+  };
+
+  const openDialog = async (user) => {
+    await user.click(screen.getByTitle("Pick a date"));
+    await user.click(screen.getByRole("button", { name: /Merge Point Clouds/ }));
+    return screen.findByRole("dialog");
+  };
+
+  test("one month-level button, with that month's point-cloud count", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitLoaded();
+    await user.click(screen.getByTitle("Pick a date"));
+    const btn = screen.getByRole("button", { name: /Merge Point Clouds/ });
+    expect(btn).toHaveTextContent("Merge Point Clouds1");
+    expect(btn).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: /Merge Point Clouds/ })).toHaveLength(1);
+    // a month without point clouds can't be merged
+    await user.click(screen.getByRole("button", { name: "Previous month" }));
+    expect(screen.getByRole("button", { name: /Merge Point Clouds/ })).toBeDisabled();
+    expect(
+      screen.getByTitle("No point clouds uploaded in February 2026"),
+    ).toBeInTheDocument();
+  });
+
+  test("picking a date never calls the merge API", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await waitLoaded();
+    await user.click(screen.getByTitle("Pick a date"));
+    await user.click(screen.getByRole("button", { name: /^10$/ }));
+    await waitFor(() => expect(three().pointFile.id).toBe(5));
+    expect(API.post).not.toHaveBeenCalled();
+    expect(API.get).not.toHaveBeenCalledWith("pointcloud/merge/", expect.anything());
+  });
+
+  test("the button opens the confirmation for the viewed project/month", async () => {
+    const user = userEvent.setup();
+    mockGets({ "pointcloud/merge/": { ...PREVIEW, latest: null, latest_completed: null } });
+    API.post.mockResolvedValue({
+      data: { merge: { ...MERGED, status: "queued", progress: 0, file_url: null } },
+    });
+    renderPage();
+    await waitLoaded();
+    const dialog = await openDialog(user);
+    expect(screen.queryByText("March 2026", { selector: "span" })).not.toBeInTheDocument();
+    expect(API.get).toHaveBeenCalledWith("pointcloud/merge/", {
+      params: { project_id: 7, year: 2026, month: 3 },
+    });
+    expect(within(dialog).getByText("Tower")).toBeInTheDocument();
+    await user.click(await within(dialog).findByRole("button", { name: /Merge 1 point cloud/ }));
+    expect(API.post).toHaveBeenCalledWith("pointcloud/merge/", {
+      project_id: 7,
+      year: 2026,
+      month: 3,
+      force: false,
+    });
+    // running: dialog button disabled, chip beside the calendar, calendar button busy
+    expect(await within(dialog).findByRole("button", { name: /Merging… 0%/ })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.getByTitle(/Merging point clouds for March 2026/)).toHaveTextContent(
+      "Merging March 2026 · 0%",
+    );
+    await user.click(screen.getByTitle("Pick a date"));
+    expect(screen.getByRole("button", { name: /Merging… 0%/ })).toBeDisabled();
+    // the date-wise cloud is still the one on screen
+    expect(three().pointFile.id).toBe(5);
+  });
+
+  test("viewing the merged cloud keeps originals safe and is reversible", async () => {
+    const user = userEvent.setup();
+    API.put.mockResolvedValue({ data: {} });
+    mockGets({ "pointcloud/merge/": PREVIEW });
+    renderPage({ role: "data_contributor" });
+    await waitLoaded();
+    const original = three().pointFile;
+    const dialog = await openDialog(user);
+    await user.click(await within(dialog).findByRole("button", { name: /View merged/ }));
+
+    expect(three().pointFile).toMatchObject({
+      url: "http://127.0.0.1:8000/media/merged_pointclouds/project_7/March_2026_Merged_PointCloud.ply",
+      transform: MERGED.transform,
+      merged: true,
+      mergeId: 21,
+    });
+    expect(screen.getByText(/Merged · March 2026/)).toBeInTheDocument();
+
+    // Save position never writes the merged pose onto an original upload
+    act(() =>
+      three().onModelsChanged({ bimModel: fakeModel([1, 2, 3]), pcModel: fakeModel([4, 5, 6]) }),
+    );
+    await act(() => three().onSavePosition());
+    expect(API.put).toHaveBeenCalledTimes(1);
+    expect(API.put).toHaveBeenCalledWith("bim/2/update/", expect.anything());
+
+    await user.click(screen.getByRole("button", { name: "Back to the date-wise point cloud" }));
+    expect(three().pointFile).toBe(original);
+    expect(screen.queryByText(/Merged · March 2026/)).not.toBeInTheDocument();
+  });
+
+  test("picking a date leaves the merged view", async () => {
+    const user = userEvent.setup();
+    mockGets({ "pointcloud/merge/": PREVIEW });
+    renderPage();
+    await waitLoaded();
+    const dialog = await openDialog(user);
+    await user.click(await within(dialog).findByRole("button", { name: /View merged/ }));
+    expect(three().pointFile.merged).toBe(true);
+    await user.click(screen.getByTitle("Pick a date"));
+    await user.click(screen.getByRole("button", { name: /^10$/ }));
+    await waitFor(() => expect(three().pointFile.id).toBe(5));
+    expect(three().pointFile.merged).toBeUndefined();
+    expect(screen.queryByText(/Merged · March 2026/)).not.toBeInTheDocument();
+  });
+
+  test("a completed merge offers a View chip that can be dismissed", async () => {
+    const user = userEvent.setup();
+    mockGets({ "pointcloud/merge/": { ...PREVIEW, latest: null, latest_completed: null } });
+    API.post.mockResolvedValue({ data: { merge: MERGED, reused: true } });
+    renderPage();
+    await waitLoaded();
+    const dialog = await openDialog(user);
+    await user.click(await within(dialog).findByRole("button", { name: /Merge 1 point cloud/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: /View merged March 2026/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("button", { name: /View merged March 2026/ })).not.toBeInTheDocument();
+    expect(three().pointFile.id).toBe(5);
+  });
+});
