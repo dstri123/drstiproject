@@ -368,3 +368,79 @@ class AlignmentPair(models.Model):
 
     def __str__(self):
         return f"Pair BIM#{self.bim_id} ↔ PC#{self.pointcloud_id} ({self.method})"
+
+
+# ─── Monthly merged point cloud ────────────────────────────────────────────────
+
+def merged_pointcloud_upload_to(instance, filename):
+    return f"merged_pointclouds/project_{instance.project_id}/{filename}"
+
+
+class PointCloudMerge(models.Model):
+    """
+    One "Merge Point Clouds" run for a project + calendar month, and its
+    output. The merged PLY is a separate derived file: the source
+    PointCloudData rows, their files and their saved transforms are never
+    modified, and the merged file never appears in the per-date uploads.
+
+    `source_fingerprint` captures the sources at job creation (ids, files,
+    sizes, dates, transforms). When it no longer matches the month's current
+    sources, the result is reported as stale and can be regenerated.
+    """
+    STATUS_CHOICES = [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+    FRAME_CHOICES = [
+        ("viewer_world", "Viewer world (saved alignments)"),
+        ("source", "Reference scan coordinates"),
+    ]
+
+    project = models.ForeignKey(
+        "projects.Project", on_delete=models.CASCADE, related_name="pointcloud_merges"
+    )
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+
+    sources = models.ManyToManyField(PointCloudData, blank=True, related_name="merges")
+    source_snapshot = models.JSONField(default=list, blank=True)   # [{id, date, name, format, ...}]
+    source_fingerprint = models.CharField(max_length=64, db_index=True)
+    excluded_sources = models.JSONField(default=list, blank=True)  # unreadable formats left out
+    total_source_files = models.PositiveIntegerField(default=0)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="queued")
+    progress = models.FloatField(default=0.0)                       # 0.0 – 1.0
+    stage_label = models.CharField(max_length=120, blank=True)
+    error_message = models.TextField(blank=True)
+    failed_sources = models.JSONField(default=list, blank=True)     # [{id, name, reason, ...}]
+
+    requested_voxel_size = models.FloatField(null=True, blank=True)
+    file = models.FileField(upload_to=merged_pointcloud_upload_to, max_length=500,
+                            null=True, blank=True)
+    file_size = models.BigIntegerField(null=True, blank=True)
+    point_count = models.BigIntegerField(null=True, blank=True)
+    input_point_count = models.BigIntegerField(null=True, blank=True)
+    voxel_size = models.FloatField(null=True, blank=True)
+
+    coordinate_frame = models.CharField(max_length=20, choices=FRAME_CHOICES, blank=True)
+    reference_source_id = models.IntegerField(null=True, blank=True)
+    transform = models.JSONField(null=True, blank=True)       # viewer placement {position, quaternion, scale}
+    origin_offset = models.JSONField(null=True, blank=True)   # frame coords of the PLY's (0,0,0)
+    registration = models.JSONField(null=True, blank=True)    # per-source method / fitness / rmse
+    min_fitness = models.FloatField(null=True, blank=True)
+    max_rmse = models.FloatField(null=True, blank=True)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["project", "year", "month", "status"])]
+
+    def __str__(self):
+        return f"Merge {self.year}-{self.month:02d} project#{self.project_id} [{self.status}]"
