@@ -319,6 +319,75 @@ Response: 204 No Content
 
 **Supported Formats:** `.e57`, `.las`, `.laz`, `.pts`, `.xyz`, `.ply`
 
+### Preview a Monthly Merge
+Lists the point clouds of one project/month that a merge would use, plus the
+latest merge for that month and whether it is out of date.
+```
+GET /pointcloud/merge/?project_id=7&year=2026&month=11
+Authorization: Bearer {access_token}
+
+Response: 200 OK
+{
+  "project_name": "Project A",
+  "month_label": "November 2026",
+  "output_name": "November_2026_Merged_PointCloud.ply",
+  "sources": [{"id": 50, "date": "2026-11-05", "name": "scan_01.las", "format": "LAS", "has_saved_alignment": false}],
+  "excluded_sources": [],      // unreadable formats (E57, PLZ), left out
+  "missing_sources": [],       // files missing from storage — block merging
+  "eligible_count": 3,
+  "can_merge": true,           // false for read-only viewer accounts
+  "running": null,             // queued/running merge, if any
+  "latest": {...},             // most recent merge (any status)
+  "latest_completed": {..., "is_stale": false}
+}
+```
+
+### Start a Monthly Merge
+Merges every readable point cloud of the project dated in that month into one
+registered, voxel-downsampled PLY, in the background. Original files and their
+saved transforms are never modified; the result is not a per-date upload.
+```
+POST /pointcloud/merge/
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "project_id": 7,
+  "year": 2026,
+  "month": 11,
+  "force": false,        // true = regenerate even if an up-to-date result exists
+  "voxel_size": null     // optional override, in point-cloud units
+}
+
+Response: 202 Accepted   {"merge": {"id": 12, "status": "queued", ...}}
+Response: 200 OK         {"merge": {...}, "already_running": true}   // no duplicate job
+Response: 200 OK         {"merge": {...}, "reused": true}            // sources unchanged
+Response: 400            {"error": "...", "failed_sources": [...]}  // empty month / missing files
+Response: 403            not assigned to the project, or a viewer account
+```
+
+### Merge Status / Result
+```
+GET /pointcloud/merge/{id}/
+Authorization: Bearer {access_token}
+
+Response: 200 OK
+{
+  "id": 12, "merged_file_id": 12, "status": "completed",   // queued|running|completed|failed
+  "progress": 1.0, "stage_label": "Completed",
+  "source_ids": [50, 51, 52], "total_source_files": 3,
+  "file_url": "http://localhost:8000/media/merged_pointclouds/project_7/November_2026_Merged_PointCloud.ply",
+  "point_count": 5139891, "input_point_count": 9243735, "voxel_size": 0.0063,
+  "coordinate_frame": "source",          // or "viewer_world" when sources had saved alignments
+  "transform": null,                     // viewer placement for viewer_world results
+  "origin_offset": [x, y, z],            // frame coordinates of the PLY's (0,0,0)
+  "registration": [{"id": 51, "method": "common_coordinates_adjoining", "fitness": 0.75, "rmse": 0.03, ...}],
+  "min_fitness": 0.75, "max_rmse": 0.03,
+  "error_message": "", "failed_sources": [],
+  "is_stale": false                      // true once the month's sources changed
+}
+```
+
 ---
 
 ## 🖼️ Image Endpoints
