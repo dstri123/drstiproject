@@ -32,6 +32,7 @@ import useObjectSelection from "./useObjectSelection";
 import BlenderViewportGizmo from "../gizmo/BlenderViewportGizmo";
 import SectionBoxManager from "./sectionbox/SectionBoxManager";
 import ClipBar from "./ClipBar";
+import { exportBlocker, exportCroppedPly } from "./exportPointCloud";
 import LeafletMap from "./LeafletMap";
 import API from "../../../../api/axios";
 
@@ -521,8 +522,30 @@ function ThreeViewer({
     modelData.pcModel,
   ]);
 
+  // Section-box "Export PLY" — crops the original upload on the server.
+  const [exportingPly, setExportingPly] = useState(false);
+  const handleExportPly = async (frame) => {
+    setExportingPly(true);
+    try {
+      const name = await exportCroppedPly({
+        pcModel: modelData.pcModel,
+        pointFile: props.pointFile,
+        box: sectionManagerRef.current?.box || null,
+        frame,
+      });
+      success(`Downloaded ${name}`);
+    } catch (e) {
+      error(e?.message || "Export failed.");
+    } finally {
+      setExportingPly(false);
+    }
+  };
+
   // Adapter so <ClipBar> can drive the section box manager directly.
   const clipData = {
+    onExportPly: modelData.pcModel ? handleExportPly : undefined,
+    exportingPly,
+    exportDisabledReason: exportBlocker(modelData.pcModel, props.pointFile),
     bounds: clipState?.bounds || null,
     clip: clipState?.clip || null,
     setAxisClip: (axis, which, value) =>

@@ -388,6 +388,32 @@ Response: 200 OK
 }
 ```
 
+### Export Cropped Point Cloud (viewer "Export PLY")
+Crops the **original upload** (full density, double-precision xyz) to the
+viewer's section box and returns a binary PLY. Supported sources: PLY, LAS,
+LAZ, PTS, XYZ, and completed monthly merges.
+```
+POST /processing/tools/pointcloud-export/
+Authorization: Bearer {access_token}
+Content-Type: application/json
+
+{
+  "pointcloud_id": 50,                   // or "merge_id": 12 (exactly one)
+  "raw_to_world": [16 numbers],          // Three.js Matrix4.elements (column-major):
+                                         // raw file coords -> viewer world
+  "box": {"min": [x, y, z], "max": [x, y, z]},   // viewer world; null = whole cloud
+  "frame": "original"                    // "original" = scan coordinates (merges: + origin_offset)
+                                         // "aligned"  = viewer placement, converted to Z-up
+}
+
+Response: 200 OK  (application/octet-stream, attachment)
+  Content-Disposition: attachment; filename="scan_cropped_original.ply"
+  X-Point-Count: 1234567
+Response: 400  bad payload, unsupported format, or no points inside the box
+Response: 403  not assigned to the project
+Response: 404  point cloud / completed merge not found
+```
+
 ---
 
 ## 🖼️ Image Endpoints

@@ -10,6 +10,7 @@ Each view is inspired by an IFCtoFDS concept mapped to the backend:
   AuditLogView        ← IFCtoFDS undo stack history
   ProjectChecksView   ← IFCtoFDS runChecks(fdsModel, ifcModel)
 """
+import io
 import os
 import tempfile
 import shutil
@@ -570,6 +571,114 @@ class PointCloudToPLYView(APIView):
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
+
+
+# ─── Viewer export: cropped point cloud → PLY ────────────────────────────────
+
+class _DeleteDirOnClose(io.FileIO):
+    """Read-only file that removes its temp directory once the response
+    has been sent (FileResponse closes the file when it is done)."""
+
+    def __init__(self, path, cleanup_dir):
+        super().__init__(path, "rb")
+        self._cleanup_dir = cleanup_dir
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            shutil.rmtree(self._cleanup_dir, ignore_errors=True)
+
+
+def _ascii_filename(name):
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
+    return safe.strip("._") or "pointcloud"
+
+
+class PointCloudExportView(APIView):
+    """
+    POST /api/v1/processing/tools/pointcloud-export/
+
+    JSON body:
+      pointcloud_id | merge_id   the cloud shown in the viewer
+      raw_to_world   16 numbers, Three.js column-major: raw file coords ->
+                     viewer world (matrixWorld * translate(-centroid))
+      box            {"min": [x,y,z], "max": [x,y,z]} in viewer world, or null
+      frame          "original" (default) | "aligned"
+
+    Returns a binary PLY of the points inside the box, read from the
+    original upload at full density and precision.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from django.http import FileResponse
+        from . import pointcloud_export as pe
+        from . import pointcloud_merge as pm
+        from .models import PointCloudMerge
+
+        data = request.data
+        pc_id, merge_id = data.get("pointcloud_id"), data.get("merge_id")
+        if bool(pc_id) == bool(merge_id):
+            return Response({"error": "Send exactly one of pointcloud_id or merge_id."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        original_offset = None
+        if pc_id:
+            obj = PointCloudData.objects.select_related("project").filter(pk=pc_id).first()
+            if obj is None:
+                return Response({"error": "Point cloud not found."}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            obj = PointCloudMerge.objects.select_related("project").filter(pk=merge_id).first()
+            if obj is None or obj.status != "completed" or not obj.file:
+                return Response({"error": "Merged point cloud not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+            # The merged PLY is stored relative to `origin_offset`; "original"
+            # coordinates of a merge are those of its merge frame.
+            off = obj.origin_offset
+            if isinstance(off, (list, tuple)) and len(off) == 3:
+                original_offset = off
+
+        if not _merge_access(request.user, obj.project):
+            return Response({"error": "You are not assigned to this project."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            raw_to_world = pe.matrix_from_elements(data.get("raw_to_world"))
+            box = pe.box_from_payload(data.get("box"))
+        except pe.ExportError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        frame = data.get("frame") or "original"
+
+        ext = pm.source_ext(obj)
+        work_dir = tempfile.mkdtemp(prefix="pcexport_")
+        try:
+            src_path = pm._local_path(obj.file, work_dir)
+            stem = os.path.splitext(os.path.basename(obj.file.name or ""))[0] or "pointcloud"
+            out_name = _ascii_filename(f"{stem}_{'cropped' if box else 'export'}_{frame}.ply")
+            out_path = os.path.join(work_dir, out_name)
+            result = pe.export_cropped_ply(
+                src_path, ext, out_path, raw_to_world=raw_to_world, box=box,
+                frame=frame, original_offset=original_offset,
+            )
+        except pe.ExportError as e:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            import traceback
+            traceback.print_exc()
+            return Response({"error": f"Export failed: {e}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = FileResponse(
+            _DeleteDirOnClose(out_path, work_dir),
+            as_attachment=True,
+            filename=out_name,
+            content_type="application/octet-stream",
+        )
+        response["X-Point-Count"] = str(result["point_count"])
+        return response
 
 
 def _file_to_ply_bytes(path, ext, max_points=2_000_000):

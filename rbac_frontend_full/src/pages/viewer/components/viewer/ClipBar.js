@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 
 const AXIS_COLORS = { x: "#dc2626", y: "#16a34a", z: "#2563eb" };
 
@@ -102,7 +102,8 @@ function AxisControls({ axis, bounds, clip, setAxisClip }) {
 
 /**
  * Bottom CLIP bar (inspired by IFCtoFDS): min/max clipping per axis with
- * paired sliders and numeric steppers, plus Reset.
+ * paired sliders and numeric steppers, plus Reset. With `onExportPly` it also
+ * offers "Export PLY": the points inside the box, from the original upload.
  */
 export default function ClipBar({
   bounds,
@@ -111,7 +112,11 @@ export default function ClipBar({
   reset,
   boxVisible = true,
   setBoxVisible,
+  onExportPly,
+  exportingPly = false,
+  exportDisabledReason = null,
 }) {
+  const [exportFrame, setExportFrame] = useState("original");
   if (!bounds || !clip) return null;
 
   const rowStyle = {
@@ -190,6 +195,58 @@ export default function ClipBar({
               />
               Show box
             </label>
+          )}
+          {onExportPly && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <select
+                aria-label="Export coordinates"
+                value={exportFrame}
+                onChange={(e) => setExportFrame(e.target.value)}
+                disabled={exportingPly}
+                title={
+                  exportFrame === "aligned"
+                    ? "Where it sits in the viewer (aligned to the BIM), Z-up"
+                    : "The scan's own coordinates (lines up with the original file)"
+                }
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#475569",
+                  padding: "5px 6px",
+                  borderRadius: 8,
+                  border: "1px solid #cbd5e1",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                }}
+              >
+                <option value="original">Original coords</option>
+                <option value="aligned">Aligned (Z-up)</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => onExportPly(exportFrame)}
+                disabled={exportingPly || !!exportDisabledReason}
+                title={
+                  exportDisabledReason ||
+                  "Download the point cloud inside the box as PLY (full resolution)"
+                }
+                style={{
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  border: "1px solid #2563eb",
+                  background:
+                    exportingPly || exportDisabledReason ? "#93c5fd" : "#2563eb",
+                  color: "#ffffff",
+                  cursor:
+                    exportingPly || exportDisabledReason ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {exportingPly ? "Exporting…" : "Export PLY"}
+              </button>
+            </div>
           )}
           <button
             type="button"
